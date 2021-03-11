@@ -13,6 +13,9 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
 archives:
   - replacements:
       darwin: Darwin
@@ -30,3 +33,8 @@ changelog:
     exclude:
       - '^docs:'
       - '^test:'
+env_files:
+  # use only one or release will fail!
+  github_token: ~/.path/to/my/gh_token
+  gitlab_token: ~/.path/to/my/gl_token
+  gitea_token: ~/.path/to/my/gitea_token

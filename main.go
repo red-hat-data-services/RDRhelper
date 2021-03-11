@@ -23,8 +23,8 @@ var textAttention = ansi.ColorCode("red+b")
 var textReset = ansi.ColorCode("reset")
 
 var appConfig = struct {
-	KubeConfigSourcePath string `yaml:"kubeConfigSourcePath"`
-	KubeConfigTargetPath string `yaml:"kubeConfigTargetPath"`
+	KubeConfigPrimaryPath   string `yaml:"kubeConfigPrimaryPath"`
+	KubeConfigSecondaryPath string `yaml:"kubeConfigSecondaryPath"`
 }{}
 
 func init() {
@@ -79,8 +79,8 @@ func validateKubeConfig(val interface{}) error {
 	return nil
 }
 
-func checkOCSReady(target string) {
-	fmt.Printf("Verifying that OCS is ready on the %s cluster\n", target)
+func checkOCSReady(secondary string) {
+	fmt.Printf("Verifying that OCS is ready on the %s cluster\n", secondary)
 
 	// Check
 	// oc get storagecluster -n openshift-storage ocs-storagecluster -o jsonpath='{.status.phase}{"\n"}'
@@ -89,12 +89,12 @@ func checkOCSReady(target string) {
 	s.Start()
 	time.Sleep(2 * time.Second)
 	s.Stop()
-	fmt.Printf("%s  %s OCS is ready\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s OCS is ready\n%s", textGood, secondary, textReset)
 }
 
-func enableOmapGenerator(target string) {
-	fmt.Printf("Activating the OMAP Generator on the %s cluster\n", target)
-	fmt.Printf("  OMAP Generator created on the %s cluster\n", target)
+func enableOmapGenerator(secondary string) {
+	fmt.Printf("Activating the OMAP Generator on the %s cluster\n", secondary)
+	fmt.Printf("  OMAP Generator created on the %s cluster\n", secondary)
 
 	// Set
 	// oc patch cm rook-ceph-operator-config -n openshift-storage --type json --patch  '[{ "op": "add", "path": "/data/CSI_ENABLE_OMAP_GENERATOR", "value": "true" }]'
@@ -104,11 +104,11 @@ func enableOmapGenerator(target string) {
 	s.Start()
 	time.Sleep(2 * time.Second)
 	s.Stop()
-	fmt.Printf("%s  %s OMAP Generator is ready\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s OMAP Generator is ready\n%s", textGood, secondary, textReset)
 }
 
-func patchRBDforMirror(target string) {
-	fmt.Printf("Patching block storage pool for async replication on the %s cluster\n", target)
+func patchRBDforMirror(secondary string) {
+	fmt.Printf("Patching block storage pool for async replication on the %s cluster\n", secondary)
 
 	// Set
 	// oc apply a modified CephBlockPool
@@ -117,36 +117,36 @@ func patchRBDforMirror(target string) {
 	s.Start()
 	time.Sleep(2 * time.Second)
 	s.Stop()
-	fmt.Printf("%s  %s Block storage pool is ready\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s Block storage pool is ready\n%s", textGood, secondary, textReset)
 }
 
-func createMirrorBootstrapSecret(target string) {
-	fmt.Printf("Setting up bootstrap secrets for replication on the %s cluster\n", target)
+func createMirrorBootstrapSecret(secondary string) {
+	fmt.Printf("Setting up bootstrap secrets for replication on the %s cluster\n", secondary)
 
-	fmt.Printf("%s  %s determining the bootstrap secret\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s determining the bootstrap secret\n%s", textGood, secondary, textReset)
 
 	s := spinner.New(spinner.CharSets[39], 150*time.Millisecond)
 	s.Start()
 	time.Sleep(2 * time.Second)
 	s.Stop()
 
-	fmt.Printf("%s  %s determining the other cluster's name\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s determining the other cluster's name\n%s", textGood, secondary, textReset)
 
 	s.Restart()
 	time.Sleep(2 * time.Second)
 	s.Stop()
 
-	fmt.Printf("%s  %s saving the bootstrap secret\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s saving the bootstrap secret\n%s", textGood, secondary, textReset)
 
 	s.Restart()
 	time.Sleep(2 * time.Second)
 	s.Stop()
 
-	fmt.Printf("%s  %s bootstrap secrets configured\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s bootstrap secrets configured\n%s", textGood, secondary, textReset)
 }
 
-func createMirrorCRD(target string) {
-	fmt.Printf("Creating Mirror CR on the %s cluster\n", target)
+func createMirrorCRD(secondary string) {
+	fmt.Printf("Creating Mirror CR on the %s cluster\n", secondary)
 
 	yaml := `    apiVersion: ceph.rook.io/v1
     kind: CephRBDMirror
@@ -160,7 +160,7 @@ func createMirrorCRD(target string) {
         secretNames:
         # list of Kubernetes Secrets containing the peer token
         - 59b89021-3ee2-4a25-b087-b43ee80b3dde-openshift-storage
-        resources:
+        reprimarys:
         # The pod requests and limits
         limits:
             cpu: "1"
@@ -170,12 +170,12 @@ func createMirrorCRD(target string) {
             memory: "2Gi"
 `
 	fmt.Println(yaml)
-	fmt.Printf("%s  %s waiting for mirror Pod to be Ready\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s waiting for mirror Pod to be Ready\n%s", textGood, secondary, textReset)
 	s := spinner.New(spinner.CharSets[39], 150*time.Millisecond)
 	s.Start()
 	time.Sleep(2 * time.Second)
 	s.Stop()
-	fmt.Printf("%s  %s mirror Pod is up and Ready\n%s", textGood, target, textReset)
+	fmt.Printf("%s  %s mirror Pod is up and Ready\n%s", textGood, secondary, textReset)
 }
 
 func readConfig() error {
@@ -202,9 +202,9 @@ func readConfig() error {
 func writeNewConfig() error {
 	qs := []*survey.Question{
 		{
-			Name: "KubeConfigSourcePath",
+			Name: "KubeConfigPrimaryPath",
 			Prompt: &survey.Input{
-				Message: fmt.Sprint("Point me to the kubeconfig file of the ", textAttention, "source", textReset, " cluster:"),
+				Message: fmt.Sprint("Point me to the kubeconfig file of the ", textAttention, "primary", textReset, " cluster:"),
 				Suggest: func(toComplete string) []string {
 					files, _ := filepath.Glob(toComplete + "*")
 					return files
@@ -213,9 +213,9 @@ func writeNewConfig() error {
 			Validate: validateKubeConfig,
 		},
 		{
-			Name: "KubeConfigTargetPath",
+			Name: "KubeConfigSecondaryPath",
 			Prompt: &survey.Input{
-				Message: fmt.Sprint("Point me to the kubeconfig file of the ", textAttention, "target", textReset, " cluster:"),
+				Message: fmt.Sprint("Point me to the kubeconfig file of the ", textAttention, "secondary", textReset, " cluster:"),
 				Suggest: func(toComplete string) []string {
 					files, _ := filepath.Glob(toComplete + "*")
 					return files
@@ -254,16 +254,16 @@ func writeNewConfig() error {
 
 func install() {
 
-	checkOCSReady("source")
-	checkOCSReady("target")
-	enableOmapGenerator("source")
-	enableOmapGenerator("target")
-	patchRBDforMirror("source")
-	patchRBDforMirror("target")
-	createMirrorBootstrapSecret("source")
-	createMirrorBootstrapSecret("target")
-	createMirrorCRD("source")
-	createMirrorCRD("target")
+	checkOCSReady("primary")
+	checkOCSReady("secondary")
+	enableOmapGenerator("primary")
+	enableOmapGenerator("secondary")
+	patchRBDforMirror("primary")
+	patchRBDforMirror("secondary")
+	createMirrorBootstrapSecret("primary")
+	createMirrorBootstrapSecret("secondary")
+	createMirrorCRD("primary")
+	createMirrorCRD("secondary")
 
 	fmt.Println("Everything is ready now - restart this application in config mode to set up PVCs for replication")
 }
@@ -291,11 +291,11 @@ func configure() {
 	time.Sleep(2 * time.Second)
 	s.Stop()
 
-	fmt.Printf("%s  PVs ready for mirroring on source cluster\n%s", textGood, textReset)
+	fmt.Printf("%s  PVs ready for mirroring on primary cluster\n%s", textGood, textReset)
 	s.Restart()
 	time.Sleep(2 * time.Second)
 	s.Stop()
 
-	fmt.Printf("%s  PVs ready for mirroring on target cluster\n%s", textGood, textReset)
+	fmt.Printf("%s  PVs ready for mirroring on secondary cluster\n%s", textGood, textReset)
 
 }
