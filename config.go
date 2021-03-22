@@ -12,9 +12,11 @@ import (
 	"github.com/rivo/tview"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	controllerClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var frame *tview.Frame
@@ -24,11 +26,17 @@ var appConfig = struct {
 	KubeConfigSecondaryPath string `yaml:"kubeConfigSecondaryPath"`
 }{}
 
-var kubeConfigPrimary clientcmdapi.Config
-var kubeConfigSecondary clientcmdapi.Config
-var primaryClient *kubernetes.Clientset
-var secondaryClient *kubernetes.Clientset
+type kubeAccess struct {
+	name             string
+	path             string
+	config           clientcmdapi.Config
+	typedClient      *kubernetes.Clientset
+	dynamicClient    dynamic.Interface
+	controllerClient controllerClient.Client
+}
+
 var primaryLocation, secondaryLocation string
+var kubeConfigPrimary, kubeConfigSecondary kubeAccess
 
 func updateFrame() {
 	frame.Clear()
@@ -119,14 +127,14 @@ func showConfigPage() {
 }
 
 func primaryKubeConfChanged(path string) {
-	config, client, err := validateKubeConfig(path)
+	access, err := validateKubeConfig(path)
 	if err != nil {
 		return
 	}
 	appConfig.KubeConfigPrimaryPath = path
-	kubeConfigPrimary = *config
-	primaryClient = client
-	url, err := url.Parse(kubeConfigPrimary.Clusters[kubeConfigPrimary.Contexts[kubeConfigPrimary.CurrentContext].Cluster].Server)
+	access.name = "primary"
+	kubeConfigPrimary = access
+	url, err := url.Parse(kubeConfigPrimary.config.Clusters[kubeConfigPrimary.config.Contexts[kubeConfigPrimary.config.CurrentContext].Cluster].Server)
 	if err != nil {
 		return
 	}
@@ -134,14 +142,14 @@ func primaryKubeConfChanged(path string) {
 	updateFrame()
 }
 func secondaryKubeConfChanged(path string) {
-	config, client, err := validateKubeConfig(path)
+	access, err := validateKubeConfig(path)
 	if err != nil {
 		return
 	}
 	appConfig.KubeConfigSecondaryPath = path
-	kubeConfigSecondary = *config
-	secondaryClient = client
-	url, err := url.Parse(kubeConfigSecondary.Clusters[kubeConfigSecondary.Contexts[kubeConfigSecondary.CurrentContext].Cluster].Server)
+	access.name = "secondary"
+	kubeConfigSecondary = access
+	url, err := url.Parse(kubeConfigSecondary.config.Clusters[kubeConfigSecondary.config.Contexts[kubeConfigSecondary.config.CurrentContext].Cluster].Server)
 	if err != nil {
 		return
 	}
@@ -149,26 +157,39 @@ func secondaryKubeConfChanged(path string) {
 	updateFrame()
 }
 
-func validateKubeConfig(path string) (*clientcmdapi.Config, *kubernetes.Clientset, error) {
+func validateKubeConfig(path string) (kubeAccess, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "The given file does not exist")
+		return kubeAccess{}, errors.Wrapf(err, "The given file does not exist")
 	}
 	if info.IsDir() {
-		return nil, nil, errors.Errorf("%s is a directory, not a file", path)
+		return kubeAccess{}, errors.Errorf("%s is a directory, not a file", path)
 	}
 	fileConfig, err := clientcmd.LoadFromFile(path)
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to load kubeconfig file at %s", path)
+		return kubeAccess{}, errors.Wrapf(err, "failed to load kubeconfig file at %s", path)
 	}
-
 	restConfig, err := clientcmd.NewDefaultClientConfig(*fileConfig, &clientcmd.ConfigOverrides{}).ClientConfig()
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to instantiate rest client", path)
+		return kubeAccess{}, errors.Wrapf(err, "failed to instantiate rest client", path)
 	}
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to load kubeconfig as kubernetes client", path)
+		return kubeAccess{}, errors.Wrapf(err, "failed to load kubeconfig as kubernetes client", path)
 	}
-	return fileConfig, clientset, nil
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return kubeAccess{}, errors.Wrapf(err, "failed to load kubeconfig as kubernetes client", path)
+	}
+	cClient, err := controllerClient.New(restConfig, controllerClient.Options{})
+	if err != nil {
+		return kubeAccess{}, errors.Wrapf(err, "failed to load kubeconfig as kubernetes client", path)
+	}
+	return kubeAccess{
+		path:             path,
+		config:           *fileConfig,
+		typedClient:      clientset,
+		dynamicClient:    dynamicClient,
+		controllerClient: cClient,
+	}, nil
 }

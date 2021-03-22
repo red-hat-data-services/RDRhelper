@@ -1,13 +1,23 @@
 package main
 
 import (
+	"io"
+	"os"
+
 	"github.com/rivo/tview"
+	log "github.com/sirupsen/logrus"
 )
 
 var pages = tview.NewPages()
 var app = tview.NewApplication()
 
 func main() {
+	logFile, e := os.Create("asyncDRhelper.log")
+	if e != nil {
+		panic(e)
+	}
+	mw := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(mw)
 
 	pages.AddAndSwitchToPage("main",
 		tview.NewList().
