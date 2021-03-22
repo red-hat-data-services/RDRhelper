@@ -5,13 +5,13 @@ import (
 )
 
 var pages = tview.NewPages()
+var app = tview.NewApplication()
 
 func main() {
-	app := tview.NewApplication()
 
 	pages.AddAndSwitchToPage("main",
 		tview.NewList().
-			AddItem("Install", "Install AsyncDR", '1', nil).
+			AddItem("Install", "Install AsyncDR", '1', func() { installReplication() }).
 			AddItem("Verify Install", "Verify correct AsyncDR installation", '2', func() { pages.ShowPage("notImplemented") }).
 			AddItem("Configure Primary", "Configure PVs for DR on the primary side", '3', func() { populatePrimaryPVCs(); pages.SwitchToPage("configurePrimary") }).
 			AddItem("Configure Secondary", "Configure PVs for DR on the secondary side", '4', nil).
