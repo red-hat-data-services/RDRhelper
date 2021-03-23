@@ -11,6 +11,14 @@ import (
 var pages = tview.NewPages()
 var app = tview.NewApplication()
 
+func init() {
+	log.SetFormatter(&log.TextFormatter{
+		DisableColors:    false,
+		FullTimestamp:    false,
+		DisableTimestamp: true,
+	})
+}
+
 func main() {
 	logFile, e := os.Create("asyncDRhelper.log")
 	if e != nil {

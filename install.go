@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	ocsv1 "github.com/openshift/ocs-operator/api/v1"
 	"github.com/rivo/tview"
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
@@ -16,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -37,6 +37,15 @@ func addRowOfTextOutput(newText string) {
 	fmt.Fprintln(installText, newText)
 }
 
+func init() {
+	installText.
+		SetDoneFunc(func(key tcell.Key) {
+			installText.Clear()
+			pages.RemovePage("install")
+			pages.SwitchToPage("main")
+		})
+}
+
 func installReplication() {
 	pages.AddAndSwitchToPage("install", installText, true)
 	log.SetOutput(installText)
@@ -45,15 +54,12 @@ func installReplication() {
 	addRowOfTextOutput("Starting Install!")
 	addRowOfTextOutput("")
 
-	var wg sync.WaitGroup
-	wg.Add(1)
 	// TODO
 	//  * Check that Kubernetes links are ok
 	//  * Check that OCS is installed and ready
 	//  * Check that the cluster networks are linked
-	go doInstall(&wg)
-	wg.Wait()
-	addRowOfTextOutput("Install steps done!!")
+	go doInstall()
+	// wg.Wait()
 
 	// Once we're finished, set logger back to stdout
 	// log.SetOutput(os.Stdout)
@@ -62,19 +68,29 @@ func installReplication() {
 func doInstall(wg *sync.WaitGroup) error {
 	defer wg.Done()
 
-	// enableOMAPGenerator(kubeConfigPrimary.typedClient, "primary")
-	// enableOMAPGenerator(kubeConfigSecondary.typedClient, "secondary")
+	enableOMAPGenerator(kubeConfigPrimary.typedClient, "primary")
+	enableOMAPGenerator(kubeConfigSecondary.typedClient, "secondary")
 
 	ocsv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme())
 	ocsv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme())
-	patchClusterStruc := ocsv1.StorageCluster{
-		ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace},
-		Spec: ocsv1.StorageClusterSpec{
-			ManagedResources: ocsv1.ManagedResourcesSpec{
-				CephBlockPools: ocsv1.ManageCephBlockPools{
-					ReconcileStrategy: ocsv1.ReconcileInit,
-				},
-			},
+	cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme())
+	cephv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme())
+
+	// patchClusterStruc := ocsv1.StorageCluster{
+	// 	ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace},
+	// 	Spec: ocsv1.StorageClusterSpec{
+	// 		ManagedResources: ocsv1.ManagedResourcesSpec{
+	// 			CephBlockPools: ocsv1.ManageCephBlockPools{
+	// 				ReconcileStrategy: "ignore",
+	// 			},
+	// 		},
+	// 	},
+	// }
+	patchClusterStruc := []patchStringValue{
+		{
+			Op:    "add",
+			Path:  "/spec/managedResources/cephBlockPools/reconcileStrategy",
+			Value: "ignore",
 		},
 	}
 	patchClusterJson, err := json.Marshal(patchClusterStruc)
@@ -82,84 +98,77 @@ func doInstall(wg *sync.WaitGroup) error {
 		log.WithError(err).Warn("Issues when converting StorageCluster Patch to JSON")
 		return err
 	}
-	patchClassStruc := cephv1.CephBlockPool{
-		Spec: cephv1.PoolSpec{
-			Mirroring: cephv1.MirroringSpec{
-				Enabled: true,
-				Mode:    "image",
-				SnapshotSchedules: []cephv1.SnapshotScheduleSpec{
-					{
-						Interval:  "1h",
-						StartTime: "00:00:00-00:00",
-					},
-				},
-			},
-			StatusCheck: cephv1.MirrorHealthCheckSpec{
-				Mirror: cephv1.HealthCheckSpec{
-					Disabled: false,
-					Interval: "60",
-				},
+
+	currentPrimaryBlockPool := cephv1.CephBlockPool{}
+	err = kubeConfigPrimary.controllerClient.Get(context.TODO(),
+		types.NamespacedName{Name: "ocs-storagecluster-cephblockpool", Namespace: ocsNamespace},
+		&currentPrimaryBlockPool)
+	if err != nil {
+		log.WithError(err).Warn("Issues when fetching current CephBlockPool in primary cluster")
+		return err
+	}
+	currentSecondaryBlockPool := cephv1.CephBlockPool{}
+	err = kubeConfigSecondary.controllerClient.Get(context.TODO(),
+		types.NamespacedName{Name: "ocs-storagecluster-cephblockpool", Namespace: ocsNamespace},
+		&currentSecondaryBlockPool)
+	if err != nil {
+		log.WithError(err).Warn("Issues when fetching current CephBlockPool in primary cluster")
+		return err
+	}
+	mirrorSpec := cephv1.MirroringSpec{
+		Enabled: true,
+		Mode:    "image",
+		SnapshotSchedules: []cephv1.SnapshotScheduleSpec{
+			{
+				Interval: "1h",
+				// StartTime: "00:00:00-00:00",
 			},
 		},
 	}
-	patchClassJson, err := json.Marshal(patchClassStruc)
-
+	currentPrimaryBlockPool.Spec.Mirroring = mirrorSpec
+	patchClassJsonPrimary, err := json.Marshal(currentPrimaryBlockPool)
+	if err != nil {
+		log.WithError(err).Warn("Issues when converting CephBlockPool Patch to JSON")
+		return err
+	}
+	currentSecondaryBlockPool.Spec.Mirroring = mirrorSpec
+	patchClassJsonSecondary, err := json.Marshal(currentSecondaryBlockPool)
 	if err != nil {
 		log.WithError(err).Warn("Issues when converting CephBlockPool Patch to JSON")
 		return err
 	}
 
 	err = kubeConfigPrimary.controllerClient.Patch(context.TODO(),
-		&ocsv1.StorageCluster{
-			ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace},
-		},
-		client.RawPatch(types.MergePatchType, patchClusterJson))
+		&ocsv1.StorageCluster{ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace}},
+		client.RawPatch(types.JSONPatchType, patchClusterJson))
 
 	if err != nil {
 		log.WithError(err).Warn("Issues when patching StorageCluster in primary cluster")
 		return err
 	}
-	addRowOfTextOutput("[primary] OCS Block Pool reconcile strategy set to init")
+	addRowOfTextOutput("[primary] OCS Block Pool reconcile strategy set to ignore")
 
-	err = kubeConfigSecondary.typedClient.RESTClient().
-		Patch(types.JSONPatchType).
-		Namespace(ocsNamespace).
-		Resource("storageclusters").
-		AbsPath("ocs.openshift.io/v1").
-		Name("ocs-storagecluster").
-		// VersionedParams(&metav1.PatchOptions{}, scheme.ParameterCodec).
-		Body(patchClusterJson).
-		Do(context.TODO()).Error()
+	err = kubeConfigSecondary.controllerClient.Patch(context.TODO(),
+		&ocsv1.StorageCluster{ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace}},
+		client.RawPatch(types.JSONPatchType, patchClusterJson))
 	if err != nil {
 		log.WithError(err).Warn("Issues when patching StorageCluster in secondary cluster")
 		return err
 	}
-	addRowOfTextOutput("[secondary] OCS Block Pool reconcile strategy set to init")
+	addRowOfTextOutput("[secondary] OCS Block Pool reconcile strategy set to ignore")
 
-	err = kubeConfigPrimary.typedClient.RESTClient().
-		Patch(types.JSONPatchType).
-		Namespace(ocsNamespace).
-		Resource("cephblockpools.ceph.rook.io").
-		AbsPath().
-		Name("ocs-storagecluster-cephblockpool").
-		// VersionedParams(&metav1.PatchOptions{}, scheme.ParameterCodec).
-		Body(patchClassJson).
-		Do(context.TODO()).Error()
+	err = kubeConfigPrimary.controllerClient.Patch(context.TODO(),
+		&cephv1.CephBlockPool{ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster-cephblockpool", Namespace: ocsNamespace}},
+		client.RawPatch(types.MergePatchType, patchClassJsonPrimary))
 	if err != nil {
 		log.WithError(err).Warn("Issues when patching CephBlockPool in primary cluster")
 		return err
 	}
 	addRowOfTextOutput("[primary] OCS Block Pool Mirroring enabled")
 
-	err = kubeConfigSecondary.typedClient.RESTClient().
-		Patch(types.JSONPatchType).
-		Namespace(ocsNamespace).
-		Resource("cephblockpools.ceph.rook.io").
-		AbsPath().
-		Name("ocs-storagecluster-cephblockpool").
-		// VersionedParams(&metav1.PatchOptions{}, scheme.ParameterCodec).
-		Body(patchClassJson).
-		Do(context.TODO()).Error()
+	err = kubeConfigSecondary.controllerClient.Patch(context.TODO(),
+		&cephv1.CephBlockPool{ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster-cephblockpool", Namespace: ocsNamespace}},
+		client.RawPatch(types.MergePatchType, patchClassJsonSecondary))
 	if err != nil {
 		log.WithError(err).Warn("Issues when patching CephBlockPool in secondary cluster")
 		return err
@@ -167,72 +176,116 @@ func doInstall(wg *sync.WaitGroup) error {
 	addRowOfTextOutput("[secondary] OCS Block Pool Mirroring enabled")
 
 	// Wait for status to be populated...
-	time.Sleep(2 * time.Second)
-	exchangeMirroringBootstrapSecrets(kubeConfigSecondary.typedClient, kubeConfigPrimary.typedClient, "secondary", "primary")
-	exchangeMirroringBootstrapSecrets(kubeConfigPrimary.typedClient, kubeConfigSecondary.typedClient, "primary", "secondary")
-
-	payload := []patchStringValue{{
-		Op:    "replace",
-		Path:  "reclaimPolicy",
-		Value: "Retain",
-	}}
-	payloadBytes, _ := json.Marshal(payload)
-	_, err = kubeConfigPrimary.typedClient.StorageV1().StorageClasses().Patch(context.TODO(), "ocs-storagecluster-ceph-rbd", types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
+	time.Sleep(5 * time.Second)
+	err = exchangeMirroringBootstrapSecrets(&kubeConfigSecondary, &kubeConfigPrimary)
 	if err != nil {
-		log.WithError(err).Warn("Issues when patching StorageClass in primary cluster")
+		log.WithError(err).Warnf("Issues when exchanging bootstrap infos from %s to %s", "secondary", "primary")
 		return err
 	}
-	addRowOfTextOutput("[primary] OCS RBD Storage Class retain policy changed to retain")
-	_, err = kubeConfigSecondary.typedClient.StorageV1().StorageClasses().Patch(context.TODO(), "ocs-storagecluster-ceph-rbd", types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
+	err = exchangeMirroringBootstrapSecrets(&kubeConfigPrimary, &kubeConfigSecondary)
 	if err != nil {
-		log.WithError(err).Warn("Issues when patching StorageClass in secondary cluster")
+		log.WithError(err).Warnf("Issues when exchanging bootstrap infos from %s to %s", "primary", "secondary")
 		return err
 	}
-	addRowOfTextOutput("[secondary] OCS RBD Storage Class retain policy changed to retain")
 
+	err = changeRBDStorageClasstoRetain(kubeConfigPrimary)
+	if err != nil {
+		log.WithError(err).Warn("Issues when changing StorageClass to Retain in primary")
+		return err
+	}
+	err = changeRBDStorageClasstoRetain(kubeConfigSecondary)
+	if err != nil {
+		log.WithError(err).Warn("Issues when changing StorageClass to Retain in secondary")
+		return err
+	}
+
+	addRowOfTextOutput("Install steps done!!")
 	return nil
 }
 
-func exchangeMirroringBootstrapSecrets(from, to *kubernetes.Clientset, fromCluster, toCluster string) error {
-	result := cephv1.CephBlockPool{}
-	err := from.RESTClient().
-		Get().
-		Namespace(ocsNamespace).
-		Resource("cephblockpools.ceph.rook.io").
-		AbsPath().
-		Name("ocs-storagecluster-cephblockpool").
-		VersionedParams(&metav1.GetOptions{}, scheme.ParameterCodec).
-		Do(context.TODO()).Into(&result)
+func changeRBDStorageClasstoRetain(cluster kubeAccess) error {
+	class, err := cluster.typedClient.StorageV1().StorageClasses().Get(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.GetOptions{})
 	if err != nil {
-		log.WithError(err).Warn("Issues when getting CephBlockPool in secondary cluster")
+		log.WithError(err).Warnf("Issues when fetching StorageClass in %s cluster", cluster.name)
+		return err
+	}
+	policy := corev1.PersistentVolumeReclaimRetain
+	class.ReclaimPolicy = &policy
+	class.TypeMeta = metav1.TypeMeta{APIVersion: "storage.k8s.io/v1", Kind: "StorageClass"}
+	class.ManagedFields = nil
+	class.ResourceVersion = ""
+
+	err = cluster.typedClient.StorageV1().StorageClasses().Delete(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.DeleteOptions{})
+	if err != nil {
+		log.WithError(err).Warnf("Issues when temporarily deleting StorageClass in %s cluster", cluster.name)
+		return err
+	}
+	_, err = cluster.typedClient.StorageV1().StorageClasses().Create(context.TODO(), class, metav1.CreateOptions{})
+	if err != nil {
+		log.WithError(err).Warnf("Issues when creating new StorageClass in %s cluster", cluster.name)
+		return err
+	}
+	addRowOfTextOutput(fmt.Sprintf("[%s] OCS RBD Storage Class retain policy changed to retain", cluster.name))
+	return nil
+}
+
+func exchangeMirroringBootstrapSecrets(from, to *kubeAccess) error {
+	result := cephv1.CephBlockPool{}
+	err := from.controllerClient.Get(context.TODO(),
+		types.NamespacedName{Name: "ocs-storagecluster-cephblockpool", Namespace: ocsNamespace},
+		&result)
+	if err != nil {
+		log.WithError(err).Warnf("[%s] Issues when getting CephBlockPool", from.name)
 		return err
 	}
 	secretName := result.Status.Info["rbdMirrorBootstrapPeerSecretName"]
-	secret, err := from.CoreV1().Secrets(ocsNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	if secretName == "" {
+		log.Warnf("[%s] Could not find 'rbdMirrorBootstrapPeerSecretName' in %+v", from.name, result.Status.Info)
+		return errors.New("secret name not found in pool status")
+	}
+	secret, err := from.typedClient.CoreV1().Secrets(ocsNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
-		log.WithError(err).Warn("Issues when fetching secret token in secondary cluster")
+		log.WithError(err).Warnf("[%s] Issues when fetching secret token", from.name)
 		return err
 	}
-	secondaryPoolToken := secret.Data["token"]
-	addRowOfTextOutput(fmt.Sprintf("[%s] Got Pool Mirror secret from secret %s", fromCluster, secretName))
-	secondarySiteName := result.Status.MirroringInfo.Summary["site_name"].(string)
-	addRowOfTextOutput(fmt.Sprintf("[%s] Got site name %s", fromCluster, secondarySiteName))
-
-	primaryBootstrapSecret := corev1.Secret{
+	poolToken := secret.Data["token"]
+	addRowOfTextOutput(fmt.Sprintf("[%s] Got Pool Mirror secret from secret %s", from.name, secretName))
+	mirrorinfo := result.Status.MirroringInfo
+	if mirrorinfo == nil {
+		log.Warnf("[%s] MirroringInfo not set yet %+v", from.name, mirrorinfo)
+		return errors.New("MirroringInfo not set yet")
+	}
+	siteName := mirrorinfo.Summary["summary"].(map[string]interface{})
+	if siteName == nil || siteName["site_name"] == "" {
+		log.Warnf("[%s] site_name not set yet %+v", from.name, siteName)
+		return errors.New("site_name not set yet")
+	}
+	addRowOfTextOutput(fmt.Sprintf("[%s] Got site name %s", from.name, siteName["site_name"]))
+	bootstrapSecretStruc := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: secondarySiteName,
+			Name:      siteName["site_name"].(string),
+			Namespace: ocsNamespace,
+		},
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Secret",
+			APIVersion: "v1",
 		},
 		Data: map[string][]byte{
-			"token": secondaryPoolToken,
+			"token": poolToken,
 			"pool":  []byte("ocs-storagecluster-cephblockpool"),
 		},
 	}
-	_, err = to.CoreV1().Secrets(ocsNamespace).Create(context.TODO(), &primaryBootstrapSecret, metav1.CreateOptions{})
+	bootstrapSecretJSON, err := json.Marshal(bootstrapSecretStruc)
 	if err != nil {
-		log.WithError(err).Warn("Issues when creating bootstrap secret in primary location")
+		log.Warnf("[%s] issues when converting secret to JSON %+v", from.name, bootstrapSecretStruc)
 		return err
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] Created bootstrap secret", toCluster))
+	_, err = to.typedClient.CoreV1().Secrets(ocsNamespace).Patch(context.TODO(), siteName["site_name"].(string), types.ApplyPatchType, bootstrapSecretJSON, metav1.PatchOptions{FieldManager: "asyncDRhelper"})
+	if err != nil {
+		log.WithError(err).Warnf("Issues when creating bootstrap secret in %s location", to.name)
+		return err
+	}
+	addRowOfTextOutput(fmt.Sprintf("[%s] Created bootstrap secret", to.name))
 	return nil
 }
 
