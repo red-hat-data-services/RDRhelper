@@ -10,6 +10,7 @@ import (
 
 var pages = tview.NewPages()
 var app = tview.NewApplication()
+var logMultiWriter io.Writer
 
 func init() {
 	log.SetFormatter(&log.TextFormatter{
@@ -24,8 +25,8 @@ func main() {
 	if e != nil {
 		panic(e)
 	}
-	mw := io.MultiWriter(os.Stdout, logFile)
-	log.SetOutput(mw)
+	logMultiWriter = io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(logMultiWriter)
 
 	pages.AddAndSwitchToPage("main",
 		tview.NewList().
