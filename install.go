@@ -265,6 +265,22 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess) error {
 		return err
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Created bootstrap secret", to.name))
+
+	err = to.controllerClient.Create(context.TODO(),
+		&cephv1.CephRBDMirror{
+			ObjectMeta: metav1.ObjectMeta{Name: "rbd-mirror", Namespace: ocsNamespace},
+			Spec: cephv1.RBDMirroringSpec{
+				Count: 1,
+				Peers: cephv1.RBDMirroringPeerSpec{
+					SecretNames: []string{siteName["site_name"].(string)},
+				},
+			},
+		}, &client.CreateOptions{})
+	if err != nil {
+		log.WithError(err).Warnf("Issues when creating rbd-mirror CR in %s location", to.name)
+		return err
+	}
+	addRowOfTextOutput(fmt.Sprintf("[%s] Created rbd-mirror CR", to.name))
 	return nil
 }
 
