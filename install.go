@@ -25,6 +25,13 @@ type patchStringValue struct {
 	Value string `json:"value"`
 }
 
+//  patchStringValue specifies a patch operation for a bool.
+type patchBoolValue struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value bool   `json:"value"`
+}
+
 var installText = tview.NewTextView().
 	SetChangedFunc(func() {
 		app.Draw()
@@ -103,6 +110,17 @@ func doInstall() error {
 	// 	return err
 	// }
 
+	err = enableToolbox(kubeConfigPrimary)
+	if err != nil {
+		log.WithError(err).Warnf("Issues when enabling the Toolbox in the %s cluster", "primary")
+		return err
+	}
+	err = enableToolbox(kubeConfigSecondary)
+	if err != nil {
+		log.WithError(err).Warnf("Issues when enabling the Toolbox in the %s cluster", "secondary")
+		return err
+	}
+
 	addRowOfTextOutput("Install steps done!!")
 
 	// Once we're finished, set logger back to stdout and file
@@ -168,6 +186,32 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 		return err
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Block Pool Mirroring enabled", cluster.name))
+
+	return nil
+}
+
+func enableToolbox(cluster kubeAccess) error {
+	patchClusterStruc := []patchBoolValue{
+		{
+			Op:    "replace",
+			Path:  "/spec/enableCephTools",
+			Value: true,
+		},
+	}
+	patchClusterJson, err := json.Marshal(patchClusterStruc)
+	if err != nil {
+		log.WithError(err).Warn("Issues when converting OCSInitialization Patch to JSON")
+		return err
+	}
+	err = cluster.controllerClient.Patch(context.TODO(),
+		&ocsv1.OCSInitialization{ObjectMeta: metav1.ObjectMeta{Name: "ocsinit", Namespace: ocsNamespace}},
+		client.RawPatch(types.JSONPatchType, patchClusterJson))
+
+	if err != nil {
+		log.WithError(err).Warnf("Issues when enabling Ceph Toolbox in %s cluster", cluster.name)
+		return err
+	}
+	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Toolbox enabled", cluster.name))
 
 	return nil
 }
@@ -265,17 +309,26 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess) error {
 		return err
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Created bootstrap secret", to.name))
-
-	err = to.controllerClient.Create(context.TODO(),
-		&cephv1.CephRBDMirror{
-			ObjectMeta: metav1.ObjectMeta{Name: "rbd-mirror", Namespace: ocsNamespace},
-			Spec: cephv1.RBDMirroringSpec{
-				Count: 1,
-				Peers: cephv1.RBDMirroringPeerSpec{
-					SecretNames: []string{siteName["site_name"].(string)},
-				},
+	// err = cluster.controllerClient.Patch(context.TODO(),
+	// 	&ocsv1.StorageCluster{ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace}},
+	// 	client.RawPatch(types.JSONPatchType, patchClusterJson))
+	rbdMirrorSpec := cephv1.CephRBDMirror{
+		ObjectMeta: metav1.ObjectMeta{Name: "rbd-mirror", Namespace: ocsNamespace},
+		TypeMeta:   metav1.TypeMeta{Kind: "CephRBDMirror", APIVersion: "ceph.rook.io/v1"},
+		Spec: cephv1.RBDMirroringSpec{
+			Count: 1,
+			Peers: cephv1.RBDMirroringPeerSpec{
+				SecretNames: []string{siteName["site_name"].(string)},
 			},
-		}, &client.CreateOptions{})
+		}}
+	rbdMirrorJSON, err := json.Marshal(rbdMirrorSpec)
+	if err != nil {
+		log.Warnf("[%s] issues when converting rbd-mirror Spec to JSON %+v", from.name, rbdMirrorSpec)
+		return err
+	}
+	err = to.controllerClient.Patch(context.TODO(),
+		&rbdMirrorSpec,
+		client.RawPatch(types.ApplyPatchType, rbdMirrorJSON), &client.PatchOptions{FieldManager: "asyncDRhelper"})
 	if err != nil {
 		log.WithError(err).Warnf("Issues when creating rbd-mirror CR in %s location", to.name)
 		return err

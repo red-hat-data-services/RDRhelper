@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	controllerClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +31,7 @@ type kubeAccess struct {
 	name             string
 	path             string
 	config           clientcmdapi.Config
+	restConfig       rest.Config
 	typedClient      *kubernetes.Clientset
 	dynamicClient    dynamic.Interface
 	controllerClient controllerClient.Client
@@ -188,6 +190,7 @@ func validateKubeConfig(path string) (kubeAccess, error) {
 	return kubeAccess{
 		path:             path,
 		config:           *fileConfig,
+		restConfig:       *restConfig,
 		typedClient:      clientset,
 		dynamicClient:    dynamicClient,
 		controllerClient: cClient,
