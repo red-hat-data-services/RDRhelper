@@ -1,6 +1,6 @@
 module gitlab.consulting.redhat.com/cblum/asyncDRhelper
 
-go 1.15
+go 1.16
 
 require (
 	github.com/gdamore/tcell/v2 v2.2.0
