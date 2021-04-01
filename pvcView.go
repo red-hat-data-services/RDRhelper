@@ -1,15 +1,22 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	log "github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var primaryPVCs *tview.Table
 
 func init() {
+	log.SetOutput(logFile)
 	primaryPVCs = tview.NewTable().
 		SetSelectable(true, false).
 		SetSeparator(tview.Borders.Vertical).
@@ -137,15 +144,54 @@ func populatePrimaryPVCs() error {
 		SetCell(0, 1, tview.NewTableCell("PVC").SetSelectable(false).SetTextColor(tcell.ColorYellow)).
 		SetCell(0, 2, tview.NewTableCell("Replication status").SetSelectable(false).SetTextColor(tcell.ColorYellow))
 
-	pvcCount := 1
-	for _, namespace := range []string{"default", "testNS"} {
-		for i := 1; i < 10; i++ {
-			primaryPVCs.SetCellSimple(pvcCount, 0, namespace)
-			primaryPVCs.SetCellSimple(pvcCount, 1, fmt.Sprintf("PVC%d", i))
-			primaryPVCs.SetCell(pvcCount, 2, tview.NewTableCell("active").SetTextColor(tcell.ColorGreen))
-			pvcCount++
+	pvs, err := kubeConfigPrimary.typedClient.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		log.WithError(err).Warn("Issues when listing pods for PVC list")
+		return err
+	}
+
+	currentRow := 1
+	for _, pv := range pvs.Items {
+		pvc := pv.Spec.ClaimRef
+		if pvc == nil {
+			// This happens for unbound PVs, we skip those
+			continue
 		}
+		mirroringEnabled, err := checkMirrorStatus(kubeConfigPrimary, &pv)
+		if err != nil {
+			log.WithField("PV", pv.Name).WithError(err).Warn("Issues when fetching mirror status")
+			continue
+		}
+		primaryPVCs.SetCellSimple(currentRow, 0, pvc.Namespace)
+		primaryPVCs.SetCellSimple(currentRow, 1, pvc.Name)
+		if mirroringEnabled {
+			primaryPVCs.SetCell(currentRow, 2, tview.NewTableCell("active").SetTextColor(tcell.ColorGreen))
+		} else {
+			primaryPVCs.SetCell(currentRow, 2, tview.NewTableCell("inactive").SetTextColor(tcell.ColorRed))
+		}
+		currentRow += 1
 	}
 
 	return nil
+}
+
+func checkMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume) (bool, error) {
+	if pv.Spec.CSI == nil {
+		return false, errors.New("PV has no CSI spec")
+	}
+	rbdName := pv.Spec.CSI.VolumeAttributes["imageName"]
+	if rbdName == "" {
+		return false, errors.New("could not get RBD name from PV")
+	}
+	command := fmt.Sprintf("rbd -p %s mirror image status %s", "ocs-storagecluster-cephblockpool", rbdName)
+	_, stderr, err := executeInToolbox(cluster, command)
+	// Catch error later, since exit code 22 is thrown when image is not enabled
+	log.Infof("DEBUG:: %s", stderr)
+	if strings.Contains(stderr, "mirroring not enabled on the image") {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.New("could not get RBD mirror info from PV")
+	}
+	return true, nil
 }

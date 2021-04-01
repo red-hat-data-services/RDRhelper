@@ -37,9 +37,11 @@ func main() {
 			AddItem("Configure Kubeconfigs", "Configure which Kubeconfigs to use for primary and secondary locations", '5', func() { showConfigPage() }).
 			AddItem("Failover / Failback", "Failover to secondary or Failback to primary location", '9', func() {
 				log.Info("Selected 9")
-				_, err := getCephStatus(kubeConfigPrimary)
+				status, err := getCephStatus(kubeConfigPrimary)
 				if err != nil {
 					log.WithError(err).Warn("ISSUE")
+				} else {
+					log.WithField("status", status).Infof("Got ceph status!")
 				}
 			}).
 			AddItem("Quit", "Press to exit app", 'q', func() { app.Stop() }),
