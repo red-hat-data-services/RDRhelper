@@ -4,10 +4,10 @@ go 1.16
 
 require (
 	github.com/gdamore/tcell/v2 v2.2.0
-	github.com/openshift/ocs-operator v0.0.1-alpha1.0.20210318132330-1122fed26cb5
+	github.com/openshift/ocs-operator v0.0.1-alpha1.0.20210329143343-282f7dedfebd
 	github.com/pkg/errors v0.9.1
 	github.com/rivo/tview v0.0.0-20210312174852-ae9464cc3598
-	github.com/rook/rook v1.5.9
+	github.com/rook/rook v1.5.8-0.20210219161258-2744b997ad89
 	github.com/sirupsen/logrus v1.8.1
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.20.5

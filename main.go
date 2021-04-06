@@ -30,7 +30,7 @@ func main() {
 
 	pages.AddAndSwitchToPage("main",
 		tview.NewList().
-			AddItem("Install", "Install AsyncDR", '1', func() { installReplication() }).
+			AddItem("Install", "Install AsyncDR", '1', func() { showBlockPoolChoice() }).
 			AddItem("Verify Install", "Verify correct AsyncDR installation", '2', func() { pages.ShowPage("notImplemented") }).
 			AddItem("Configure Primary", "Configure PVs for DR on the primary side", '3', func() { setPVCViewPage(); pages.SwitchToPage("configurePrimary") }).
 			AddItem("Configure Secondary", "Configure PVs for DR on the secondary side", '4', nil).

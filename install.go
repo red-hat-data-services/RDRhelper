@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 	ocsv1 "github.com/openshift/ocs-operator/api/v1"
+	"github.com/pkg/errors"
 	"github.com/rivo/tview"
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,6 +38,7 @@ var installText = tview.NewTextView().
 		app.Draw()
 	})
 var ocsNamespace = "openshift-storage"
+var useNewBlockPoolForMirroring = false
 
 func addRowOfTextOutput(newText string) {
 	fmt.Fprintln(installText, newText)
@@ -51,8 +53,42 @@ func init() {
 		})
 }
 
+func showBlockPoolChoice() {
+
+	form := tview.NewForm().
+		AddButton("Use Default Block Pool", func() {
+			useNewBlockPoolForMirroring = false
+			installReplication()
+			pages.RemovePage("blockPoolChoice")
+		}).
+		AddButton("Use Dedicated Block Pool", func() {
+			useNewBlockPoolForMirroring = true
+			installReplication()
+			pages.RemovePage("blockPoolChoice")
+		}).
+		SetCancelFunc(func() {
+			pages.RemovePage("blockPoolChoice")
+			pages.SwitchToPage("main")
+		}).
+		SetButtonsAlign(tview.AlignCenter)
+
+	helperTextFrame := tview.NewFrame(
+		tview.NewTextView().
+			SetText("Chose if the default or a new Block Pool is used for mirroring PVCs\nUse TAB to switch between buttons, then select with ENTER").
+			SetTextAlign(tview.AlignCenter))
+
+	container := tview.NewFlex().SetDirection(tview.FlexRow)
+	container.AddItem(helperTextFrame, 0, 1, false)
+	container.AddItem(form, 0, 1, true)
+
+	pages.AddAndSwitchToPage("blockPoolChoice", container, true)
+
+}
+
 func installReplication() {
+
 	pages.AddAndSwitchToPage("install", installText, true)
+
 	log.SetOutput(installText)
 
 	addRowOfTextOutput("Starting Install!")
@@ -70,11 +106,13 @@ func doInstall() error {
 	err := enableOMAPGenerator(kubeConfigPrimary)
 	if err != nil {
 		log.WithError(err).Warn("Issues when enabling OMAP generator in primary cluster")
+		showAlert("Issues when enabling OMAP generator in primary cluster")
 		return err
 	}
 	err = enableOMAPGenerator(kubeConfigSecondary)
 	if err != nil {
 		log.WithError(err).Warn("Issues when enabling OMAP generator in secondary cluster")
+		showAlert("Issues when enabling OMAP generator in secondary cluster")
 		return err
 	}
 
@@ -83,19 +121,107 @@ func doInstall() error {
 	cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme())
 	cephv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme())
 
-	enablePoolMirroring(kubeConfigPrimary, "ocs-storagecluster-cephblockpool")
-	enablePoolMirroring(kubeConfigSecondary, "ocs-storagecluster-cephblockpool")
+	blockpool := "ocs-storagecluster-cephblockpool"
+	if useNewBlockPoolForMirroring {
+		blockpool = "replicapool"
+		newBlockPool := cephv1.CephBlockPool{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "ceph.rook.io/v1",
+				Kind:       "CephBlockPool",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "replicapool",
+				Namespace: ocsNamespace,
+			},
+			Spec: cephv1.PoolSpec{
+				Replicated: cephv1.ReplicatedSpec{
+					Size: 3,
+				},
+				Mirroring: cephv1.MirroringSpec{
+					Enabled: true,
+					Mode:    "image",
+					SnapshotSchedules: []cephv1.SnapshotScheduleSpec{
+						{Interval: "1h"},
+					},
+				},
+			},
+		}
+
+		if err = createBlockPool(kubeConfigPrimary, &newBlockPool); err != nil {
+			log.WithError(err).Warn("Issues when adding new block pool in primary cluster")
+			showAlert("Issues when adding new block pool in primary cluster")
+			return err
+		}
+		if err = createBlockPool(kubeConfigSecondary, &newBlockPool); err != nil {
+			log.WithError(err).Warn("Issues when adding new block pool in secondary cluster")
+			showAlert("Issues when adding new block pool in secondary cluster")
+			return err
+		}
+
+		storageclassPolicy := corev1.PersistentVolumeReclaimRetain
+		storageclassBindingMode := v1.VolumeBindingImmediate
+
+		newStorageClass := v1.StorageClass{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "storage.k8s.io/v1",
+				Kind:       "StorageClass",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ocs-storagecluster-ceph-mirror",
+			},
+			Parameters: map[string]string{
+				"csi.storage.k8s.io/controller-expand-secret-name":      "rook-csi-rbd-provisioner",
+				"csi.storage.k8s.io/controller-expand-secret-namespace": "openshift-storage",
+				"csi.storage.k8s.io/fstype":                             "ext4",
+				"csi.storage.k8s.io/node-stage-secret-name":             "rook-csi-rbd-node",
+				"csi.storage.k8s.io/node-stage-secret-namespace":        "openshift-storage",
+				"csi.storage.k8s.io/provisioner-secret-name":            "rook-csi-rbd-provisioner",
+				"csi.storage.k8s.io/provisioner-secret-namespace":       "openshift-storage",
+				"clusterID":     "openshift-storage",
+				"imageFeatures": "layering",
+				"imageFormat":   "2",
+				"pool":          "replicapool",
+			},
+			Provisioner:       "openshift-storage.rbd.csi.ceph.com",
+			ReclaimPolicy:     &storageclassPolicy,
+			VolumeBindingMode: &storageclassBindingMode,
+		}
+
+		if err = createStorageClass(kubeConfigPrimary, &newStorageClass); err != nil {
+			log.WithError(err).Warn("Issues when adding StorageClass in primary cluster")
+			showAlert("Issues when adding StorageClass in primary cluster")
+			return err
+		}
+		if err = createStorageClass(kubeConfigSecondary, &newStorageClass); err != nil {
+			log.WithError(err).Warn("Issues when adding StorageClass in secondary cluster")
+			showAlert("Issues when adding StorageClass in secondary cluster")
+			return err
+		}
+	}
+
+	if enablePoolMirroring(kubeConfigPrimary, blockpool); err != nil {
+		log.WithError(err).Warn("Issues when enabling mirroring in primary cluster")
+		showAlert("Issues when enabling mirroring in primary cluster")
+		return err
+	}
+	if enablePoolMirroring(kubeConfigSecondary, blockpool); err != nil {
+		log.WithError(err).Warn("Issues when enabling mirroring in secondary cluster")
+		showAlert("Issues when enabling mirroring in secondary cluster")
+		return err
+	}
 
 	// Wait for status to be populated...
 	time.Sleep(5 * time.Second)
-	err = exchangeMirroringBootstrapSecrets(&kubeConfigSecondary, &kubeConfigPrimary)
+	err = exchangeMirroringBootstrapSecrets(&kubeConfigSecondary, &kubeConfigPrimary, blockpool)
 	if err != nil {
 		log.WithError(err).Warnf("Issues when exchanging bootstrap infos from %s to %s", "secondary", "primary")
+		showAlert(fmt.Sprintf("Issues when exchanging bootstrap infos from %s to %s", "secondary", "primary"))
 		return err
 	}
-	err = exchangeMirroringBootstrapSecrets(&kubeConfigPrimary, &kubeConfigSecondary)
+	err = exchangeMirroringBootstrapSecrets(&kubeConfigPrimary, &kubeConfigSecondary, blockpool)
 	if err != nil {
 		log.WithError(err).Warnf("Issues when exchanging bootstrap infos from %s to %s", "primary", "secondary")
+		showAlert(fmt.Sprintf("Issues when exchanging bootstrap infos from %s to %s", "primary", "secondary"))
 		return err
 	}
 
@@ -113,11 +239,13 @@ func doInstall() error {
 	err = enableToolbox(kubeConfigPrimary)
 	if err != nil {
 		log.WithError(err).Warnf("Issues when enabling the Toolbox in the %s cluster", "primary")
+		showAlert(fmt.Sprintf("Issues when enabling the Toolbox in the %s cluster", "primary"))
 		return err
 	}
 	err = enableToolbox(kubeConfigSecondary)
 	if err != nil {
 		log.WithError(err).Warnf("Issues when enabling the Toolbox in the %s cluster", "secondary")
+		showAlert(fmt.Sprintf("Issues when enabling the Toolbox in the %s cluster", "secondary"))
 		return err
 	}
 
@@ -125,6 +253,40 @@ func doInstall() error {
 
 	// Once we're finished, set logger back to stdout and file
 	log.SetOutput(logMultiWriter)
+	return nil
+}
+
+func createBlockPool(cluster kubeAccess, newBlockPool *cephv1.CephBlockPool) error {
+	patchClusterJson, err := json.Marshal(*newBlockPool)
+	if err != nil {
+		return errors.WithMessage(err, "Issues when converting BlockPool CR to JSON")
+	}
+	err = cluster.controllerClient.Patch(context.TODO(),
+		newBlockPool,
+		client.RawPatch(types.ApplyPatchType, patchClusterJson),
+		&client.PatchOptions{FieldManager: "asyncDRhelper"})
+
+	if err != nil {
+		return errors.WithMessagef(err, "Issues when applying CephBlockPool in %s cluster", cluster.name)
+	}
+	return nil
+}
+
+func createStorageClass(cluster kubeAccess, newStorageClass *v1.StorageClass) error {
+	patchClassJson, err := json.Marshal(*newStorageClass)
+	if err != nil {
+		return errors.WithMessage(err, "Issues when converting StorageClass CR to JSON")
+	}
+	_, err = cluster.typedClient.StorageV1().StorageClasses().Patch(context.TODO(),
+		newStorageClass.Name,
+		types.ApplyPatchType,
+		patchClassJson,
+		metav1.PatchOptions{FieldManager: "asyncDRhelper"},
+	)
+
+	if err != nil {
+		return errors.WithMessagef(err, "Issues when applying StorageClass in %s cluster", cluster.name)
+	}
 	return nil
 }
 
@@ -138,8 +300,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 	}
 	patchClusterJson, err := json.Marshal(patchClusterStruc)
 	if err != nil {
-		log.WithError(err).Warn("Issues when converting StorageCluster Patch to JSON")
-		return err
+		return errors.WithMessage(err, "Issues when converting StorageCluster Patch to JSON")
 	}
 
 	currentBlockPool := cephv1.CephBlockPool{}
@@ -147,8 +308,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 		types.NamespacedName{Name: poolname, Namespace: ocsNamespace},
 		&currentBlockPool)
 	if err != nil {
-		log.WithError(err).Warnf("Issues when fetching current CephBlockPool in %s cluster", cluster.name)
-		return err
+		return errors.WithMessagef(err, "Issues when fetching current CephBlockPool in %s cluster", cluster.name)
 	}
 
 	mirrorSpec := cephv1.MirroringSpec{
@@ -164,8 +324,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 	currentBlockPool.Spec.Mirroring = mirrorSpec
 	patchClassJson, err := json.Marshal(currentBlockPool)
 	if err != nil {
-		log.WithError(err).Warn("Issues when converting CephBlockPool Patch to JSON")
-		return err
+		return errors.WithMessage(err, "Issues when converting CephBlockPool Patch to JSON")
 	}
 
 	err = cluster.controllerClient.Patch(context.TODO(),
@@ -173,8 +332,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 		client.RawPatch(types.JSONPatchType, patchClusterJson))
 
 	if err != nil {
-		log.WithError(err).Warnf("Issues when patching StorageCluster in %s cluster", cluster.name)
-		return err
+		return errors.WithMessagef(err, "Issues when patching StorageCluster in %s cluster", cluster.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Block Pool reconcile strategy set to ignore", cluster.name))
 
@@ -182,8 +340,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 		&cephv1.CephBlockPool{ObjectMeta: metav1.ObjectMeta{Name: poolname, Namespace: ocsNamespace}},
 		client.RawPatch(types.MergePatchType, patchClassJson))
 	if err != nil {
-		log.WithError(err).Warnf("Issues when patching CephBlockPool in %s cluster", cluster.name)
-		return err
+		return errors.WithMessagef(err, "Issues when patching CephBlockPool in %s cluster", cluster.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Block Pool Mirroring enabled", cluster.name))
 
@@ -200,16 +357,14 @@ func enableToolbox(cluster kubeAccess) error {
 	}
 	patchClusterJson, err := json.Marshal(patchClusterStruc)
 	if err != nil {
-		log.WithError(err).Warn("Issues when converting OCSInitialization Patch to JSON")
-		return err
+		return errors.WithMessage(err, "Issues when converting OCSInitialization Patch to JSON")
 	}
 	err = cluster.controllerClient.Patch(context.TODO(),
 		&ocsv1.OCSInitialization{ObjectMeta: metav1.ObjectMeta{Name: "ocsinit", Namespace: ocsNamespace}},
 		client.RawPatch(types.JSONPatchType, patchClusterJson))
 
 	if err != nil {
-		log.WithError(err).Warnf("Issues when enabling Ceph Toolbox in %s cluster", cluster.name)
-		return err
+		return errors.WithMessagef(err, "Issues when enabling Ceph Toolbox in %s cluster", cluster.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Toolbox enabled", cluster.name))
 
@@ -219,8 +374,7 @@ func enableToolbox(cluster kubeAccess) error {
 func changeRBDStorageClasstoRetain(cluster kubeAccess) error {
 	class, err := cluster.typedClient.StorageV1().StorageClasses().Get(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.GetOptions{})
 	if err != nil {
-		log.WithError(err).Warnf("Issues when fetching StorageClass in %s cluster", cluster.name)
-		return err
+		return errors.WithMessagef(err, "Issues when fetching StorageClass in %s cluster", cluster.name)
 	}
 	policy := corev1.PersistentVolumeReclaimRetain
 	class.ReclaimPolicy = &policy
@@ -230,25 +384,23 @@ func changeRBDStorageClasstoRetain(cluster kubeAccess) error {
 
 	err = cluster.typedClient.StorageV1().StorageClasses().Delete(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.DeleteOptions{})
 	if err != nil {
-		log.WithError(err).Warnf("Issues when temporarily deleting StorageClass in %s cluster", cluster.name)
-		return err
+		return errors.WithMessagef(err, "Issues when temporarily deleting StorageClass in %s cluster", cluster.name)
 	}
 	_, err = cluster.typedClient.StorageV1().StorageClasses().Create(context.TODO(), class, metav1.CreateOptions{})
 	if err != nil {
-		log.WithError(err).Warnf("Issues when creating new StorageClass in %s cluster", cluster.name)
-		return err
+		return errors.WithMessagef(err, "Issues when creating new StorageClass in %s cluster", cluster.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] OCS RBD Storage Class retain policy changed to retain", cluster.name))
 	return nil
 }
 
-func exchangeMirroringBootstrapSecrets(from, to *kubeAccess) error {
+func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) error {
 	result := cephv1.CephBlockPool{}
 	var secretName string
 	for i := 0; i < 60; i++ {
 
 		err := from.controllerClient.Get(context.TODO(),
-			types.NamespacedName{Name: "ocs-storagecluster-cephblockpool", Namespace: ocsNamespace},
+			types.NamespacedName{Name: blockpool, Namespace: ocsNamespace},
 			&result)
 		if err != nil {
 			log.WithError(err).Warnf("[%s] Issues when getting CephBlockPool", from.name)
@@ -295,7 +447,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess) error {
 		},
 		Data: map[string][]byte{
 			"token": poolToken,
-			"pool":  []byte("ocs-storagecluster-cephblockpool"),
+			"pool":  []byte(blockpool),
 		},
 	}
 	bootstrapSecretJSON, err := json.Marshal(bootstrapSecretStruc)
