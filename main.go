@@ -32,7 +32,7 @@ func main() {
 		tview.NewList().
 			AddItem("Install", "Install AsyncDR", '1', func() { installReplication() }).
 			AddItem("Verify Install", "Verify correct AsyncDR installation", '2', func() { pages.ShowPage("notImplemented") }).
-			AddItem("Configure Primary", "Configure PVs for DR on the primary side", '3', func() { populatePrimaryPVCs(); pages.SwitchToPage("configurePrimary") }).
+			AddItem("Configure Primary", "Configure PVs for DR on the primary side", '3', func() { setPVCViewPage(); pages.SwitchToPage("configurePrimary") }).
 			AddItem("Configure Secondary", "Configure PVs for DR on the secondary side", '4', nil).
 			AddItem("Configure Kubeconfigs", "Configure which Kubeconfigs to use for primary and secondary locations", '5', func() { showConfigPage() }).
 			AddItem("Failover / Failback", "Failover to secondary or Failback to primary location", '9', func() {
@@ -63,4 +63,41 @@ func main() {
 	if err := app.SetRoot(frame, true).Run(); err != nil {
 		panic(err)
 	}
+}
+
+func showModal(modalTitle string, modalText string, buttons []string, doneFunc func(buttonIndex int, buttonLabel string)) {
+	modal := tview.NewModal().
+		SetText(modalText).
+		AddButtons(buttons).
+		SetDoneFunc(doneFunc)
+
+	pages.AddPage(modalTitle,
+		modal,
+		false,
+		false,
+	)
+	pages.ShowPage(modalTitle)
+}
+
+func showAlert(alertText string) {
+	showModal("alert", alertText, []string{"OK"}, func(buttonIndex int, buttonLabel string) { pages.RemovePage("alert") })
+}
+
+func showInfo(pageTitle string, information string, buttons map[string]func()) {
+	InfoBox := tview.NewTextView().SetText(information)
+	form := tview.NewForm()
+	layout := tview.NewFlex()
+	layout.
+		AddItem(InfoBox, 0, 3, false).
+		AddItem(form, 0, 1, true).
+		SetDirection(tview.FlexRow)
+	layout.SetBorder(true)
+	form.SetButtonsAlign(tview.AlignCenter)
+	for button, selected := range buttons {
+		form.AddButton(button, selected)
+	}
+	pages.AddAndSwitchToPage(pageTitle,
+		layout,
+		true,
+	)
 }
