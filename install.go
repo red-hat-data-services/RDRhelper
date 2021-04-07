@@ -12,6 +12,7 @@ import (
 	"github.com/rivo/tview"
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/sjson"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -269,9 +270,16 @@ func createBlockPool(cluster kubeAccess, newBlockPool *cephv1.CephBlockPool) err
 	if err != nil {
 		return errors.WithMessage(err, "Issues when converting BlockPool CR to JSON")
 	}
+	// Fix JSON - OCS 4.7 delivers faulty CRDs with rook-operator
+	// Will be resolved with OCS 4.8
+	patchedPoolJson, err := sjson.Delete(string(patchPoolJson), "spec.erasureCoded")
+	if err != nil {
+		return errors.WithMessage(err, "Issues when patching BlockPool CR in JSON")
+	}
+	log.Infof("DEBUG %s", patchPoolJson)
 	err = cluster.controllerClient.Patch(context.TODO(),
-		newBlockPool,
-		client.RawPatch(types.ApplyPatchType, patchPoolJson),
+		newBlockPool.DeepCopy(),
+		client.RawPatch(types.ApplyPatchType, []byte(patchedPoolJson)),
 		&client.PatchOptions{FieldManager: "asyncDRhelper"})
 
 	if err != nil {
@@ -414,9 +422,11 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) e
 			log.WithError(err).Warnf("[%s] Issues when getting CephBlockPool", from.name)
 			return err
 		}
-		secretName = result.Status.Info["rbdMirrorBootstrapPeerSecretName"]
-		if secretName != "" {
-			break
+		if result.Status != nil && result.Status.Info != nil {
+			secretName = result.Status.Info["rbdMirrorBootstrapPeerSecretName"]
+			if secretName != "" {
+				break
+			}
 		}
 		addRowOfTextOutput(fmt.Sprintf("[%s] secret name not yet present in pool status", from.name))
 		time.Sleep(time.Second)

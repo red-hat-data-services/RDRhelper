@@ -9,6 +9,7 @@ require (
 	github.com/rivo/tview v0.0.0-20210312174852-ae9464cc3598
 	github.com/rook/rook v1.5.8-0.20210219161258-2744b997ad89
 	github.com/sirupsen/logrus v1.8.1
+	github.com/tidwall/sjson v1.1.6
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.20.5
 	k8s.io/apimachinery v0.20.5
