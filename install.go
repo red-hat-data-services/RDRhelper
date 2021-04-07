@@ -432,7 +432,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) e
 		time.Sleep(time.Second)
 	}
 	if secretName == "" {
-		log.Warnf("[%s] Could not find 'rbdMirrorBootstrapPeerSecretName' in %+v", from.name, result.Status.Info)
+		log.Warnf("[%s] Could not find 'rbdMirrorBootstrapPeerSecretName' in %s status block", from.name, blockpool)
 		return errors.New("secret name not found in pool status")
 	}
 
