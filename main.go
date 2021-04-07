@@ -1,20 +1,19 @@
 package main
 
 import (
-	"io"
 	"os"
 
 	"github.com/rivo/tview"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 var pages = tview.NewPages()
 var app = tview.NewApplication()
-var logMultiWriter io.Writer
 var logFile *os.File
+var log = logrus.New()
 
 func init() {
-	log.SetFormatter(&log.TextFormatter{
+	log.SetFormatter(&logrus.TextFormatter{
 		DisableColors:    false,
 		FullTimestamp:    false,
 		DisableTimestamp: true,
@@ -26,7 +25,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	log.SetOutput(logFile)
+	log.Out = logFile
 
 	pages.AddAndSwitchToPage("main",
 		tview.NewList().

@@ -11,7 +11,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rivo/tview"
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/sjson"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
@@ -90,7 +89,7 @@ func installReplication() {
 
 	pages.AddAndSwitchToPage("install", installText, true)
 
-	log.SetOutput(installText)
+	log.Out = installText
 
 	addRowOfTextOutput("Starting Install!")
 	addRowOfTextOutput("")
@@ -234,17 +233,6 @@ func doInstall() error {
 		return err
 	}
 
-	// err = changeRBDStorageClasstoRetain(kubeConfigPrimary)
-	// if err != nil {
-	// 	log.WithError(err).Warn("Issues when changing StorageClass to Retain in primary")
-	// 	return err
-	// }
-	// err = changeRBDStorageClasstoRetain(kubeConfigSecondary)
-	// if err != nil {
-	// 	log.WithError(err).Warn("Issues when changing StorageClass to Retain in secondary")
-	// 	return err
-	// }
-
 	err = enableToolbox(kubeConfigPrimary)
 	if err != nil {
 		log.WithError(err).Warnf("Issues when enabling the Toolbox in the %s cluster", "primary")
@@ -259,9 +247,10 @@ func doInstall() error {
 	}
 
 	addRowOfTextOutput("Install steps done!!")
+	addRowOfTextOutput("Press ENTER to get back to main")
 
 	// Once we're finished, set logger back to stdout and file
-	log.SetOutput(logMultiWriter)
+	log.Out = logFile
 	return nil
 }
 
