@@ -116,10 +116,18 @@ func doInstall() error {
 		return err
 	}
 
-	ocsv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme())
-	ocsv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme())
-	cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme())
-	cephv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme())
+	if err = ocsv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme()); err != nil {
+		log.WithError(err).Warn("Issues when adding the ocsv1 scheme to the primary client")
+	}
+	if err = ocsv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme()); err != nil {
+		log.WithError(err).Warn("Issues when adding the ocsv1 scheme to the secondary client")
+	}
+	if err = cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme()); err != nil {
+		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
+	}
+	if err = cephv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme()); err != nil {
+		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the secondary client")
+	}
 
 	blockpool := "ocs-storagecluster-cephblockpool"
 	if useNewBlockPoolForMirroring {
@@ -257,13 +265,13 @@ func doInstall() error {
 }
 
 func createBlockPool(cluster kubeAccess, newBlockPool *cephv1.CephBlockPool) error {
-	patchClusterJson, err := json.Marshal(*newBlockPool)
+	patchPoolJson, err := json.Marshal(*newBlockPool)
 	if err != nil {
 		return errors.WithMessage(err, "Issues when converting BlockPool CR to JSON")
 	}
 	err = cluster.controllerClient.Patch(context.TODO(),
 		newBlockPool,
-		client.RawPatch(types.ApplyPatchType, patchClusterJson),
+		client.RawPatch(types.ApplyPatchType, patchPoolJson),
 		&client.PatchOptions{FieldManager: "asyncDRhelper"})
 
 	if err != nil {
