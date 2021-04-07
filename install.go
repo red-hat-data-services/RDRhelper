@@ -205,17 +205,17 @@ func doInstall() error {
 			showAlert("Issues when adding StorageClass in secondary cluster")
 			return err
 		}
-	}
-
-	if enablePoolMirroring(kubeConfigPrimary, blockpool); err != nil {
-		log.WithError(err).Warn("Issues when enabling mirroring in primary cluster")
-		showAlert("Issues when enabling mirroring in primary cluster")
-		return err
-	}
-	if enablePoolMirroring(kubeConfigSecondary, blockpool); err != nil {
-		log.WithError(err).Warn("Issues when enabling mirroring in secondary cluster")
-		showAlert("Issues when enabling mirroring in secondary cluster")
-		return err
+	} else {
+		if enablePoolMirroring(kubeConfigPrimary, blockpool); err != nil {
+			log.WithError(err).Warn("Issues when enabling mirroring in primary cluster")
+			showAlert("Issues when enabling mirroring in primary cluster")
+			return err
+		}
+		if enablePoolMirroring(kubeConfigSecondary, blockpool); err != nil {
+			log.WithError(err).Warn("Issues when enabling mirroring in secondary cluster")
+			showAlert("Issues when enabling mirroring in secondary cluster")
+			return err
+		}
 	}
 
 	// Wait for status to be populated...
@@ -517,19 +517,25 @@ func enableOMAPGenerator(cluster kubeAccess) error {
 	addRowOfTextOutput("Waiting for OMAP generator container to appear")
 
 	for {
-		pods, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			return errors.New("error when checking on Pods")
+		if checkForOMAPGenerator(cluster) {
+			addRowOfTextOutput("OMAP generator container appeared")
+			return nil
 		}
-		for _, pod := range pods.Items {
-			containers := pod.Spec.Containers
-			for _, container := range containers {
-				if container.Name == "csi-omap-generator" {
-					addRowOfTextOutput("OMAP generator container appeared")
-					return nil
-				}
+	}
+}
+
+func checkForOMAPGenerator(cluster kubeAccess) bool {
+	pods, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "app=csi-rbdplugin-provisioner"})
+	if err != nil {
+		return false
+	}
+	for _, pod := range pods.Items {
+		containers := pod.Spec.Containers
+		for _, container := range containers {
+			if container.Name == "csi-omap-generator" {
+				return true
 			}
 		}
-
 	}
+	return false
 }

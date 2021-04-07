@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/pkg/errors"
@@ -12,21 +13,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var primaryPVCs *tview.Table
+var primaryPVCs, secondaryPVCs *tview.Table
+var pvcStatusFrame *tview.Frame
 
-func setPVCViewPage() {
-	primaryPVCs = tview.NewTable().
+func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
+	table = tview.NewTable().
 		SetSelectable(true, false).
 		SetSeparator(tview.Borders.Vertical).
 		SetFixed(1, 1).
 		SetDoneFunc(func(key tcell.Key) {
 			if key == tcell.KeyEscape {
 				pages.SwitchToPage("main")
+				pages.RemovePage("pvcView")
 			}
 		}).
 		SetSelectedFunc(func(row int, column int) {
-			namespaceCell := primaryPVCs.GetCell(row, 0)
-			pvcCell := primaryPVCs.GetCell(row, 1)
+			namespaceCell := table.GetCell(row, 0)
+			pvcCell := table.GetCell(row, 1)
 			ref := pvcCell.GetReference()
 			if ref == nil || ref == false {
 				pvcCell.SetTextColor(tcell.ColorRed)
@@ -39,32 +42,32 @@ func setPVCViewPage() {
 			}
 		})
 
-	primaryPVCs.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Rune() {
 		case 'a':
-			selectAllFromTable(primaryPVCs, true)
+			selectAllFromTable(table, true)
 		case 'n':
-			row, _ := primaryPVCs.GetSelection()
-			namespace := primaryPVCs.GetCell(row, 0).Text
-			selectAllFromNamespaceFromTable(primaryPVCs, true, namespace)
+			row, _ := table.GetSelection()
+			namespace := table.GetCell(row, 0).Text
+			selectAllFromNamespaceFromTable(table, true, namespace)
 		case 'x':
-			selectAllFromTable(primaryPVCs, false)
+			selectAllFromTable(table, false)
 		case 'r':
-			activateSelected(kubeConfigPrimary, primaryPVCs)
+			activateSelected(cluster, table)
 		case 'u':
-			deactivateSelected(kubeConfigPrimary, primaryPVCs)
+			deactivateSelected(cluster, table)
 		case 's':
-			go populatePrimaryPVCs()
+			go populatePVCTable(table, cluster)
 		case 'i':
-			row, _ := primaryPVCs.GetSelection()
-			pvcStatus := primaryPVCs.GetCell(row, 2).Text
+			row, _ := table.GetSelection()
+			pvcStatus := table.GetCell(row, 2).Text
 			if pvcStatus == "inactive" {
 				showAlert("mirroring is not enabled on this PVC")
 				break
 			}
-			pvReference := primaryPVCs.GetCell(row, 0).GetReference()
+			pvReference := table.GetCell(row, 0).GetReference()
 			pv := pvReference.(corev1.PersistentVolume)
-			showMirrorInfo(kubeConfigPrimary, &pv)
+			showMirrorInfo(cluster, &pv)
 		}
 		return event
 	})
@@ -78,6 +81,7 @@ Selection
 	(a) Select all
 	(n) Select all in namespace
 	(x) Deselect all
+	(ENTER) (De-)Select single PVC
 Actions on Selection
 	(r) Activate for replication
 	(u) Deactivate for replication
@@ -86,14 +90,19 @@ Actions on Selection
 		SetBorders(0, 1, 0, 0, 3, 0)
 
 	container := tview.NewFlex().SetDirection(tview.FlexColumn)
-	container.AddItem(primaryPVCs, 0, 2, true)
+	container.AddItem(table, 0, 2, true)
 	container.AddItem(helperTextFrame, 0, 1, false)
 
-	pages.AddPage("configurePrimary",
-		container,
-		true,
-		false)
-	go populatePrimaryPVCs()
+	pvcStatusFrame = tview.NewFrame(container)
+	pvcStatusFrame.SetBorderPadding(0, 0, 0, 0)
+	pvcInfoFrame := tview.NewFrame(pvcStatusFrame).
+		AddText(fmt.Sprintf("PVCs in %s cluster", cluster.name), true, tview.AlignCenter, tcell.ColorWhite)
+	pvcInfoFrame.SetBorder(true)
+
+	pages.AddAndSwitchToPage("pvcView",
+		pvcInfoFrame,
+		true)
+	go populatePVCTable(table, cluster)
 }
 
 func selectAllFromTable(table *tview.Table, selected bool) {
@@ -179,16 +188,23 @@ func deactivateSelected(cluster kubeAccess, table *tview.Table) {
 	}
 }
 
-func populatePrimaryPVCs() error {
+func populatePVCTable(table *tview.Table, cluster kubeAccess) error {
 
-	primaryPVCs.Clear()
+	pvcStatusFrame.AddText(
+		"Fetching list of PVCs and their mirroring status",
+		true,
+		tview.AlignCenter,
+		tcell.ColorWhite,
+	)
 
-	primaryPVCs.
+	table.Clear()
+
+	table.
 		SetCell(0, 0, &tview.TableCell{Text: "Namespace", NotSelectable: true, Color: tcell.ColorYellow}).
 		SetCell(0, 1, &tview.TableCell{Text: "PVC", NotSelectable: true, Color: tcell.ColorYellow}).
 		SetCell(0, 2, &tview.TableCell{Text: "Replication status", NotSelectable: true, Color: tcell.ColorYellow})
 
-	pvs, err := kubeConfigPrimary.typedClient.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+	pvs, err := cluster.typedClient.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		log.WithError(err).Warn("Issues when listing pods for PVC list")
 		return err
@@ -201,30 +217,30 @@ func populatePrimaryPVCs() error {
 			// This happens for unbound PVs, we skip those
 			continue
 		}
-		mirroringEnabled, err := checkMirrorStatus(kubeConfigPrimary, &pv)
+		mirroringEnabled, err := checkMirrorStatus(cluster, &pv)
 		if err != nil {
 			log.WithField("PV", pv.Name).WithError(err).Warn("Issues when fetching mirror status")
 			continue
 		}
-		primaryPVCs.SetCell(currentRow, 0, &tview.TableCell{
+		table.SetCell(currentRow, 0, &tview.TableCell{
 			Text:      pvc.Namespace,
 			Expansion: 1,
 			Color:     tcell.ColorWhite,
 			Reference: pv,
 		})
-		primaryPVCs.SetCell(currentRow, 1, &tview.TableCell{
+		table.SetCell(currentRow, 1, &tview.TableCell{
 			Text:      pvc.Name,
 			Expansion: 2,
 			Color:     tcell.ColorWhite,
 		})
 		if mirroringEnabled {
-			primaryPVCs.SetCell(currentRow, 2, &tview.TableCell{
+			table.SetCell(currentRow, 2, &tview.TableCell{
 				Text:      "active",
 				Expansion: 1,
 				Color:     tcell.ColorGreen,
 			})
 		} else {
-			primaryPVCs.SetCell(currentRow, 2, &tview.TableCell{
+			table.SetCell(currentRow, 2, &tview.TableCell{
 				Text:      "inactive",
 				Expansion: 1,
 				Color:     tcell.ColorRed,
@@ -233,6 +249,19 @@ func populatePrimaryPVCs() error {
 		currentRow += 1
 		app.Draw()
 	}
+
+	pvcStatusFrame.Clear().AddText(
+		"Fetching list of PVCs completed",
+		true,
+		tview.AlignCenter,
+		tcell.ColorGreen,
+	)
+	app.Draw()
+
+	time.Sleep(5 * time.Second)
+
+	pvcStatusFrame.Clear()
+	app.Draw()
 
 	return nil
 }

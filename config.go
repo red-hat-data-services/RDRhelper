@@ -19,7 +19,7 @@ import (
 	controllerClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var frame *tview.Frame
+var appFrame *tview.Frame
 
 var appConfig = struct {
 	KubeConfigPrimaryPath   string `yaml:"kubeConfigPrimaryPath"`
@@ -40,11 +40,12 @@ var primaryLocation, secondaryLocation string
 var kubeConfigPrimary, kubeConfigSecondary kubeAccess
 
 func updateFrame() {
-	frame.Clear()
-	frame.
+	appFrame.Clear()
+	appFrame.
 		AddText("Async DR Helper Tool", true, tview.AlignCenter, tcell.ColorWhite).
 		AddText(fmt.Sprintf("Primary: %s", primaryLocation), false, tview.AlignLeft, tcell.ColorWhite).
 		AddText(fmt.Sprintf("Secondary: %s", secondaryLocation), false, tview.AlignRight, tcell.ColorWhite)
+	pagesChangedFunc()
 }
 
 func readConfig() error {

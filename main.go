@@ -11,6 +11,7 @@ var pages = tview.NewPages()
 var app = tview.NewApplication()
 var logFile *os.File
 var log = logrus.New()
+var mainMenu = tview.NewList()
 
 func init() {
 	log.SetFormatter(&logrus.TextFormatter{
@@ -27,23 +28,10 @@ func main() {
 	}
 	log.Out = logFile
 
+	pages.SetChangedFunc(pagesChangedFunc)
+
 	pages.AddAndSwitchToPage("main",
-		tview.NewList().
-			AddItem("Install", "Install AsyncDR", '1', func() { showBlockPoolChoice() }).
-			AddItem("Verify Install", "Verify correct AsyncDR installation", '2', func() { pages.ShowPage("notImplemented") }).
-			AddItem("Configure Primary", "Configure PVs for DR on the primary side", '3', func() { setPVCViewPage(); pages.SwitchToPage("configurePrimary") }).
-			AddItem("Configure Secondary", "Configure PVs for DR on the secondary side", '4', nil).
-			AddItem("Configure Kubeconfigs", "Configure which Kubeconfigs to use for primary and secondary locations", '5', func() { showConfigPage() }).
-			AddItem("Failover / Failback", "Failover to secondary or Failback to primary location", '9', func() {
-				log.Info("Selected 9")
-				status, err := getCephStatus(kubeConfigPrimary)
-				if err != nil {
-					log.WithError(err).Warn("ISSUE")
-				} else {
-					log.WithField("status", status).Infof("Got ceph status!")
-				}
-			}).
-			AddItem("Quit", "Press to exit app", 'q', func() { app.Stop() }),
+		mainMenu,
 		true)
 
 	pages.AddPage("notImplemented",
@@ -54,13 +42,38 @@ func main() {
 		false,
 		false)
 
-	frame = tview.NewFrame(pages)
+	appFrame = tview.NewFrame(pages)
 	updateFrame()
 
 	readConfig()
 
-	if err := app.SetRoot(frame, true).Run(); err != nil {
+	if err := app.SetRoot(appFrame, true).Run(); err != nil {
 		panic(err)
+	}
+}
+
+func pagesChangedFunc() {
+	name, _ := pages.GetFrontPage()
+	if name != "main" {
+		return
+	}
+
+	mainMenu.Clear().
+		AddItem("Configure Kubeconfigs", "Configure which Kubeconfigs to use for primary and secondary locations", '5', func() { showConfigPage() }).
+		AddItem("Quit", "Press to exit app", 'q', func() { app.Stop() })
+
+	if kubeConfigPrimary.path == "" || kubeConfigSecondary.path == "" {
+		return
+	}
+	mainMenu.
+		InsertItem(0, "Verify Install", "Verify correct AsyncDR installation", '2', func() { pages.ShowPage("notImplemented") }).
+		InsertItem(0, "Install", "Install AsyncDR", '1', func() { showBlockPoolChoice() })
+
+	if checkForOMAPGenerator(kubeConfigPrimary) && checkForOMAPGenerator(kubeConfigSecondary) {
+		mainMenu.
+			InsertItem(2, "Failover / Failback", "Failover to secondary or Failback to primary location", '9', func() {}).
+			InsertItem(2, "Configure Secondary", "Configure PVs for DR on the secondary side", '4', func() { setPVCViewPage(secondaryPVCs, kubeConfigSecondary) }).
+			InsertItem(2, "Configure Primary", "Configure PVs for DR on the primary side", '3', func() { setPVCViewPage(primaryPVCs, kubeConfigPrimary) })
 	}
 }
 
