@@ -265,7 +265,6 @@ func createBlockPool(cluster kubeAccess, newBlockPool *cephv1.CephBlockPool) err
 	if err != nil {
 		return errors.WithMessage(err, "Issues when patching BlockPool CR in JSON")
 	}
-	log.Infof("DEBUG %s", patchPoolJson)
 	err = cluster.controllerClient.Patch(context.TODO(),
 		newBlockPool.DeepCopy(),
 		client.RawPatch(types.ApplyPatchType, []byte(patchedPoolJson)),

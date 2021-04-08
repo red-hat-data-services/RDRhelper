@@ -277,7 +277,6 @@ func checkMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume) (bool, e
 	command := fmt.Sprintf("rbd -p %s mirror image status %s", "ocs-storagecluster-cephblockpool", rbdName)
 	_, stderr, err := executeInToolbox(cluster, command)
 	// Catch error later, since exit code 22 is thrown when image is not enabled
-	log.Infof("DEBUG:: %s", stderr)
 	if strings.Contains(stderr, "mirroring not enabled on the image") {
 		return false, nil
 	}
@@ -320,7 +319,6 @@ func showMirrorInfo(cluster kubeAccess, pv *corev1.PersistentVolume) error {
 	command := fmt.Sprintf("rbd -p %s mirror image status %s", "ocs-storagecluster-cephblockpool", rbdName)
 	stdout, stderr, err := executeInToolbox(cluster, command)
 	// Catch error later, since exit code 22 is thrown when image is not enabled
-	log.Infof("DEBUG:: %s", stderr)
 	if strings.Contains(stderr, "mirroring not enabled on the image") {
 		showAlert("mirroring is not enabled on this PVC")
 		return errors.New("mirroring is not enabled on this PVC")
