@@ -22,8 +22,9 @@ import (
 var appFrame *tview.Frame
 
 var appConfig = struct {
-	KubeConfigPrimaryPath   string `yaml:"kubeConfigPrimaryPath"`
-	KubeConfigSecondaryPath string `yaml:"kubeConfigSecondaryPath"`
+	KubeConfigPrimaryPath   string        `yaml:"kubeConfigPrimaryPath"`
+	KubeConfigSecondaryPath string        `yaml:"kubeConfigSecondaryPath"`
+	S3info                  s3information `yaml:"s3info"`
 }{}
 
 type kubeAccess struct {
@@ -99,6 +100,7 @@ func writeNewConfig() error {
 		return err
 	}
 	defer f.Close()
+	f.Chmod(os.FileMode(0600))
 
 	encoder := yaml.NewEncoder(f)
 	err = encoder.Encode(appConfig)
