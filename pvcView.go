@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -9,8 +10,12 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/pkg/errors"
 	"github.com/rivo/tview"
+	"github.com/tidwall/sjson"
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var primaryPVCs, secondaryPVCs *tview.Table
@@ -53,9 +58,9 @@ func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
 		case 'x':
 			selectAllFromTable(table, false)
 		case 'r':
-			activateSelected(cluster, table)
+			setPVStati(cluster, true, table)
 		case 'u':
-			deactivateSelected(cluster, table)
+			setPVStati(cluster, false, table)
 		case 's':
 			go populatePVCTable(table, cluster)
 		case 'i':
@@ -147,44 +152,101 @@ func getSelectedRows(table *tview.Table) []int {
 	return result
 }
 
-func activateSelected(cluster kubeAccess, table *tview.Table) {
-	for _, row := range getSelectedRows(table) {
+// getActiveRows Returns the row indexes with active mirroring
+func getActiveRows(table *tview.Table) []int {
+	result := []int{}
+	for row := 1; row < table.GetRowCount(); row++ {
 		statusCell := table.GetCell(row, 2)
 		if statusCell.Text == "active" {
-			// PV already active
-			continue
+			result = append(result, row)
 		}
-		pvReference := table.GetCell(row, 0).GetReference()
-		if pvReference == nil {
-			log.WithField("row", row).Warn("Could not get PV reference for row")
-		}
-		pv := pvReference.(corev1.PersistentVolume)
-		err := setMirrorStatus(cluster, &pv, true)
-		if err != nil {
-			log.WithError(err).Warn("Could not change PV mirror status")
-			return
-		}
-		table.SetCell(row, 2, tview.NewTableCell("active").SetTextColor(tcell.ColorGreen))
 	}
+	return result
 }
-func deactivateSelected(cluster kubeAccess, table *tview.Table) {
+
+// setPVStati sets the PV status of selected rows to either active or inactive
+func setPVStati(cluster kubeAccess, enable bool, table *tview.Table) {
+	statusText := "active"
+	statusColor := tcell.ColorGreen
+	if !enable {
+		statusText = "inactive"
+		statusColor = tcell.ColorRed
+	}
 	for _, row := range getSelectedRows(table) {
 		statusCell := table.GetCell(row, 2)
-		if statusCell.Text == "inactive" {
-			// PV already inactive
+		if statusCell.Text == statusText {
+			// PV already in desired state
 			continue
 		}
 		pvReference := table.GetCell(row, 0).GetReference()
 		if pvReference == nil {
 			log.WithField("row", row).Warn("Could not get PV reference for row")
+			continue
 		}
 		pv := pvReference.(corev1.PersistentVolume)
-		err := setMirrorStatus(cluster, &pv, false)
+		err := setMirrorStatus(cluster, &pv, enable)
 		if err != nil {
-			log.WithError(err).Warn("Could not change PV mirror status")
-			return
+			log.WithError(err).WithField("pvName", pv.Name).Warn("Could not change PV mirror status")
+			continue
 		}
-		table.SetCell(row, 2, tview.NewTableCell("inactive").SetTextColor(tcell.ColorRed))
+		table.SetCell(row, 2, tview.NewTableCell(statusText).SetTextColor(statusColor))
+	}
+	ensureActivePVCsBackuped(cluster, table)
+}
+
+func ensureActivePVCsBackuped(cluster kubeAccess, table *tview.Table) {
+	// Collect a list of unique namespace names
+	// that contain PVCs with active mirroring
+	namespaceMap := make(map[string]struct{})
+	var namespaces []string
+	for _, row := range getActiveRows(table) {
+		namespace := table.GetCell(row, 0).Text
+		namespaceMap[namespace] = struct{}{}
+	}
+	for namespace := range namespaceMap {
+		namespaces = append(namespaces, namespace)
+	}
+	setNamespacesToBackup(cluster, namespaces)
+}
+
+func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
+	snapshotVolumeSetting := false
+	backupCR := velerov1.Backup{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "velero.io/v1",
+			Kind:       "Backup",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "async-dr-backup",
+			Namespace: "oadp-operator",
+		},
+		Spec: velerov1.BackupSpec{
+			IncludedNamespaces: namespaces,
+			ExcludedResources:  []string{"imagetags.image.openshift.io"},
+			SnapshotVolumes:    &snapshotVolumeSetting,
+		},
+	}
+
+	if err := velerov1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
+		log.WithError(err).Warn("[%s] Issues when adding velero schemas", cluster.name)
+	}
+
+	backupJSON, err := json.Marshal(backupCR)
+	if err != nil {
+		log.WithError(err).Warn("[%s] Issues when converting Backup CR to JSON")
+		showAlert("The OADP Backup plan might not have been updated properly")
+	}
+
+	backupPatchedJSON, _ := sjson.Delete(string(backupJSON), "spec.ttl")
+
+	err = cluster.controllerClient.Patch(context.TODO(),
+		&backupCR,
+		client.RawPatch(types.ApplyPatchType, []byte(backupPatchedJSON)),
+		&client.PatchOptions{FieldManager: "asyncDRhelper"})
+
+	if err != nil {
+		log.WithError(err).Warnf("[%s] Issues when applying Backup CR", cluster.name)
+		showAlert("The OADP Backup plan might not have been updated properly")
 	}
 }
 
