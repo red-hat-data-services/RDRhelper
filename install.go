@@ -335,6 +335,7 @@ func doInstall() error {
 		return err
 	}
 
+	addRowOfTextOutput("")
 	addRowOfTextOutput("Install steps done!!")
 	addRowOfTextOutput("Press ENTER to get back to main")
 
@@ -594,19 +595,19 @@ func enableOMAPGenerator(cluster kubeAccess) error {
 	}}
 	payloadBytes, _ := json.Marshal(payload)
 
-	addRowOfTextOutput("Patching CM for OMAP Generator")
-	addRowOfTextOutput(fmt.Sprintf("  Payload: %+v", payload))
+	addRowOfTextOutput(fmt.Sprintf("[%s] Patching CM for OMAP Generator", cluster.name))
+	log.Debugf("  Payload: %+v", payload)
 	_, err := configMapClient.Patch(context.TODO(), "rook-ceph-operator-config", types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
 	if err != nil {
-		addRowOfTextOutput(fmt.Sprintf("Failed with patching: %s", err))
-		return fmt.Errorf("failed with enabling the OMAP client on %s", cluster.name)
+		log.WithError(err).Errorf("[%s] Failed with patching", cluster.name)
+		return errors.WithMessagef(err, "failed with patching the OMAP client on %s", cluster.name)
 	}
-	addRowOfTextOutput("Patched CM for OMAP Generator")
-	addRowOfTextOutput("Waiting for OMAP generator container to appear")
+	addRowOfTextOutput(fmt.Sprintf("[%s] Patched CM for OMAP Generator", cluster.name))
+	addRowOfTextOutput(fmt.Sprintf("[%s] Waiting for OMAP generator container to appear", cluster.name))
 
 	for {
 		if checkForOMAPGenerator(cluster) {
-			addRowOfTextOutput("OMAP generator container appeared")
+			addRowOfTextOutput(fmt.Sprintf("[%s] OMAP generator container appeared", cluster.name))
 			return nil
 		}
 	}
