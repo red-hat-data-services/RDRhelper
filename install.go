@@ -322,6 +322,18 @@ func doInstall() error {
 		showAlert(fmt.Sprintf("Issues when installing OADP in the %s cluster", "secondary"))
 		return err
 	}
+	err = verifyOADPinstall(kubeConfigPrimary)
+	if err != nil {
+		log.WithError(err).Warnf("Issues when verifying OADP in the %s cluster", "primary")
+		showAlert(fmt.Sprintf("Issues when verifying OADP in the %s cluster", "primary"))
+		return err
+	}
+	err = verifyOADPinstall(kubeConfigSecondary)
+	if err != nil {
+		log.WithError(err).Warnf("Issues when verifying OADP in the %s cluster", "secondary")
+		showAlert(fmt.Sprintf("Issues when verifying OADP in the %s cluster", "secondary"))
+		return err
+	}
 
 	addRowOfTextOutput("Install steps done!!")
 	addRowOfTextOutput("Press ENTER to get back to main")
@@ -734,7 +746,7 @@ func doInstallOADP(cluster kubeAccess) error {
 			continue
 		}
 		if len(csvs.Items) == 0 {
-			log.WithError(err).Warnf("[%s] No OADP Operator detected yet - Retrying...", cluster.name)
+			addRowOfTextOutput(fmt.Sprintf("[%s] No OADP Operator detected yet - Retrying...", cluster.name))
 			time.Sleep(9 * time.Second)
 			continue
 		}
@@ -790,16 +802,37 @@ spec:
 		return errors.WithMessagef(err, "[%s] issues when creating Velero CR", cluster.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] OADP Velero CR created", cluster.name))
-
-	// TODO wait for velero Pod and backupstoragelocation.velero.io/default to appear healthy
+	return nil
+}
+func verifyOADPinstall(cluster kubeAccess) error {
+	addRowOfTextOutput(fmt.Sprintf("[%s] verifying OADP install", cluster.name))
+	for {
+		podlist, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{LabelSelector: "component=velero"})
+		if err != nil {
+			log.WithError(err).Warnf("[%s] issues when listing Pods in oadp-operator namespace - Retrying...", cluster.name)
+			time.Sleep(9 * time.Second)
+			continue
+		}
+		if len(podlist.Items) == 0 {
+			addRowOfTextOutput(fmt.Sprintf("[%s] still waiting for Velero Pod to appear...", cluster.name))
+			time.Sleep(9 * time.Second)
+			continue
+		}
+		if podlist.Items[0].Status.Phase == corev1.PodRunning {
+			addRowOfTextOutput(fmt.Sprintf("[%s] Velero Pod is ready and Running", cluster.name))
+			break
+		}
+		addRowOfTextOutput(fmt.Sprintf("[%s] Velero Pod is not yet running", cluster.name))
+		time.Sleep(3 * time.Second)
+	}
 
 	for {
 		var backupstoragelocation velerov1.BackupStorageLocation
-		err = cluster.controllerClient.Get(context.TODO(),
+		err := cluster.controllerClient.Get(context.TODO(),
 			types.NamespacedName{Name: "default", Namespace: "oadp-operator"},
 			&backupstoragelocation)
 		if err != nil {
-			log.WithError(err).Warnf("[%s] issues when fetching default BackupStorageLocation - Retrying...", cluster.name)
+			addRowOfTextOutput(fmt.Sprintf("[%s] issues when fetching default BackupStorageLocation - Retrying...", cluster.name))
 			time.Sleep(9 * time.Second)
 			continue
 		}
@@ -812,25 +845,6 @@ spec:
 		time.Sleep(3 * time.Second)
 	}
 
-	for {
-		podlist, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{LabelSelector: "component=velero"})
-		if err != nil {
-			log.WithError(err).Warnf("[%s] issues when listing Pods in oadp-operator namespace - Retrying...", cluster.name)
-			time.Sleep(9 * time.Second)
-			continue
-		}
-		if len(podlist.Items) == 0 {
-			log.WithError(err).Warnf("[%s] still waiting for Velero Pod to appear...", cluster.name)
-			time.Sleep(9 * time.Second)
-			continue
-		}
-		if podlist.Items[0].Status.Phase == corev1.PodRunning {
-			addRowOfTextOutput(fmt.Sprintf("[%s] Velero Pod is ready and Running", cluster.name))
-			break
-		}
-		addRowOfTextOutput(fmt.Sprintf("[%s] Velero Pod is not yet running", cluster.name))
-		time.Sleep(3 * time.Second)
-	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] OADP install is complete", cluster.name))
 
 	return nil
