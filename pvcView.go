@@ -329,14 +329,11 @@ func populatePVCTable(table *tview.Table, cluster kubeAccess) error {
 }
 
 func checkMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume) (bool, error) {
-	if pv.Spec.CSI == nil {
-		return false, errors.New("PV has no CSI spec")
+	rbdName, poolName, err := getRBDInfoFromPV(pv)
+	if err != nil {
+		return false, err
 	}
-	rbdName := pv.Spec.CSI.VolumeAttributes["imageName"]
-	if rbdName == "" {
-		return false, errors.New("could not get RBD name from PV")
-	}
-	command := fmt.Sprintf("rbd -p %s mirror image status %s", "ocs-storagecluster-cephblockpool", rbdName)
+	command := fmt.Sprintf("rbd -p %s mirror image status %s", poolName, rbdName)
 	_, stderr, err := executeInToolbox(cluster, command)
 	// Catch error later, since exit code 22 is thrown when image is not enabled
 	if strings.Contains(stderr, "mirroring not enabled on the image") {
@@ -349,12 +346,9 @@ func checkMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume) (bool, e
 }
 
 func setMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume, enable bool) error {
-	if pv.Spec.CSI == nil {
-		return errors.New("PV has no CSI spec")
-	}
-	rbdName := pv.Spec.CSI.VolumeAttributes["imageName"]
-	if rbdName == "" {
-		return errors.New("could not get RBD name from PV")
+	rbdName, poolName, err := getRBDInfoFromPV(pv)
+	if err != nil {
+		return err
 	}
 	var action string
 	if enable {
@@ -362,8 +356,8 @@ func setMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume, enable boo
 	} else {
 		action = fmt.Sprintf("disable %s", rbdName)
 	}
-	command := fmt.Sprintf("rbd -p %s mirror image %s", "ocs-storagecluster-cephblockpool", action)
-	_, _, err := executeInToolbox(cluster, command)
+	command := fmt.Sprintf("rbd -p %s mirror image %s", poolName, action)
+	_, _, err = executeInToolbox(cluster, command)
 	if err != nil {
 		return errors.Wrapf(err, "could not change RBD mirror status from PV. Command: %s", command)
 	}
@@ -371,14 +365,11 @@ func setMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume, enable boo
 }
 
 func showMirrorInfo(cluster kubeAccess, pv *corev1.PersistentVolume) error {
-	if pv == nil || pv.Spec.CSI == nil {
-		return errors.New("PV has no CSI spec")
+	rbdName, poolName, err := getRBDInfoFromPV(pv)
+	if err != nil {
+		return err
 	}
-	rbdName := pv.Spec.CSI.VolumeAttributes["imageName"]
-	if rbdName == "" {
-		return errors.New("could not get RBD name from PV")
-	}
-	command := fmt.Sprintf("rbd -p %s mirror image status %s", "ocs-storagecluster-cephblockpool", rbdName)
+	command := fmt.Sprintf("rbd -p %s mirror image status %s", poolName, rbdName)
 	stdout, stderr, err := executeInToolbox(cluster, command)
 	// Catch error later, since exit code 22 is thrown when image is not enabled
 	if strings.Contains(stderr, "mirroring not enabled on the image") {
@@ -393,4 +384,17 @@ func showMirrorInfo(cluster kubeAccess, pv *corev1.PersistentVolume) error {
 	buttons["Close"] = func() { pages.RemovePage("mirrorInfo") }
 	showInfo("mirrorInfo", stdout, buttons)
 	return nil
+}
+
+// getRBDInfoFromPV returns (rbdName, PoolName, nil) or ("", "", error)
+func getRBDInfoFromPV(pv *corev1.PersistentVolume) (string, string, error) {
+	if pv == nil || pv.Spec.CSI == nil || pv.Spec.CSI.VolumeAttributes == nil {
+		return "", "", errors.New("PV does not contain the required information")
+	}
+	rbdName := pv.Spec.CSI.VolumeAttributes["imageName"]
+	poolName := pv.Spec.CSI.VolumeAttributes["pool"]
+	if rbdName == "" || poolName == "" {
+		return "", "", errors.New("could not get RBD or pool name from PV")
+	}
+	return rbdName, poolName, nil
 }
