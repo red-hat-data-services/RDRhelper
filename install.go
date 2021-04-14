@@ -93,13 +93,13 @@ func showBlockPoolChoice() {
 		}).
 		SetButtonsAlign(tview.AlignCenter)
 
-	helperTextFrame := tview.NewFrame(
+	helperText :=
 		tview.NewTextView().
 			SetText("Chose if the default or a new Block Pool is used for mirroring PVCs\nUse TAB to switch between buttons, then select with ENTER").
-			SetTextAlign(tview.AlignCenter))
+			SetTextAlign(tview.AlignCenter)
 
 	container := tview.NewFlex().SetDirection(tview.FlexRow)
-	container.AddItem(helperTextFrame, 0, 1, false)
+	container.AddItem(helperText, 4, 1, false)
 	container.AddItem(form, 0, 1, true)
 
 	pages.AddAndSwitchToPage("blockPoolChoice", container, true)
@@ -138,13 +138,13 @@ func gatherS3Info() {
 		}).
 		SetButtonsAlign(tview.AlignCenter)
 
-	helperTextFrame := tview.NewFrame(
+	helperText :=
 		tview.NewTextView().
-			SetText("Please provide the S3 details for the bucket that will be used to store the CR definition of your synchronized namespaces").
-			SetTextAlign(tview.AlignCenter))
+			SetText("Please provide the S3 details for the bucket that will be used to store the CR definition of your synchronized namespaces\nThis is for AWS S3 buckets only at the moment\nUse TAB to jump between lines, then select Proceed with ENTER").
+			SetTextAlign(tview.AlignCenter)
 
 	container := tview.NewFlex().SetDirection(tview.FlexRow)
-	container.AddItem(helperTextFrame, 0, 1, false)
+	container.AddItem(helperText, 4, 1, false)
 	container.AddItem(form, 0, 1, true)
 
 	pages.AddAndSwitchToPage("s3Info", container, true)
