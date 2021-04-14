@@ -119,7 +119,6 @@ func gatherS3Info() {
 		AddInputField("s3 bucket name", appConfig.S3info.Bucketname, 0, nil, func(text string) { appConfig.S3info.Bucketname = text }).
 		AddInputField("object name prefix", appConfig.S3info.Objectprefix, 0, nil, func(text string) { appConfig.S3info.Objectprefix = text }).
 		AddButton("Proceed", func() {
-			useNewBlockPoolForMirroring = false
 			if validateS3info() {
 				writeNewConfig()
 				installReplication()
