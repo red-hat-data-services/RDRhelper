@@ -153,9 +153,6 @@ func installReplication() {
 
 	pages.AddAndSwitchToPage("install", installText, true)
 
-	addRowOfTextOutput("Starting Install!")
-	addRowOfTextOutput("")
-
 	// TODO
 	//  * Check that Kubernetes links are ok
 	//  * Check that OCS is installed and ready
@@ -165,6 +162,14 @@ func installReplication() {
 
 func doInstall() error {
 	log.Out = installText
+
+	addRowOfTextOutput("Starting Install!")
+	if useNewBlockPoolForMirroring {
+		addRowOfTextOutput("Using dedicated Block Pool")
+	} else {
+		addRowOfTextOutput("Using default Block Pool")
+	}
+	addRowOfTextOutput("")
 
 	err := enableOMAPGenerator(kubeConfigPrimary)
 	if err != nil {
