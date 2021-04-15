@@ -487,40 +487,45 @@ func changeRBDStorageClasstoRetain(cluster kubeAccess) error {
 	return nil
 }
 
-func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) error {
-	result := cephv1.CephBlockPool{}
-	var secretName string
+func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName string) error {
+	var blockPool cephv1.CephBlockPool
+	var cbpList cephv1.CephBlockPoolList
+	var tokenSecretName string
 	for {
-
-		err := from.controllerClient.Get(context.TODO(),
-			types.NamespacedName{Name: blockpool, Namespace: ocsNamespace},
-			&result)
+		err := from.controllerClient.List(context.TODO(),
+			&cbpList, &client.ListOptions{Namespace: ocsNamespace})
 		if err != nil {
-			log.WithError(err).Warnf("[%s] Issues when getting CephBlockPool", from.name)
+			log.WithError(err).Warnf("[%s] Issues when listing CephBlockPools", from.name)
 			return err
 		}
-		if result.Status != nil && result.Status.Info != nil && result.Status.MirroringInfo != nil && result.Status.MirroringInfo.Summary["summary"] != nil {
-			secretName = result.Status.Info["rbdMirrorBootstrapPeerSecretName"]
-			if secretName != "" {
+		for _, cbp := range cbpList.Items {
+			if cbp.Name == blockPoolName {
+				blockPool = cbp
+				break
+			}
+		}
+		if blockPool.Status != nil && blockPool.Status.Info != nil && blockPool.Status.MirroringInfo != nil && blockPool.Status.MirroringInfo.Summary["summary"] != nil {
+			tokenSecretName = blockPool.Status.Info["rbdMirrorBootstrapPeerSecretName"]
+			if tokenSecretName != "" {
 				break
 			}
 		}
 		addRowOfTextOutput(fmt.Sprintf("[%s] mirroring info not yet available in pool status", from.name))
 		time.Sleep(time.Second * 3)
 	}
-	if secretName == "" {
-		log.Warnf("[%s] Could not find 'rbdMirrorBootstrapPeerSecretName' in %s status block", from.name, blockpool)
+	if tokenSecretName == "" {
+		log.Warnf("[%s] Could not find 'rbdMirrorBootstrapPeerSecretName' in %s status block", from.name, blockPoolName)
 		return errors.New("secret name not found in pool status")
 	}
 
-	secret, err := from.typedClient.CoreV1().Secrets(ocsNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	secret, err := from.typedClient.CoreV1().Secrets(ocsNamespace).Get(context.TODO(), tokenSecretName, metav1.GetOptions{})
 	if err != nil {
 		log.WithError(err).Warnf("[%s] Issues when fetching secret token", from.name)
 		return err
 	}
 	poolToken := secret.Data["token"]
-	addRowOfTextOutput(fmt.Sprintf("[%s] Got Pool Mirror secret from secret %s", from.name, secretName))
-	mirrorinfo := result.Status.MirroringInfo
+	addRowOfTextOutput(fmt.Sprintf("[%s] Got Pool Mirror secret from secret %s", from.name, tokenSecretName))
+	mirrorinfo := blockPool.Status.MirroringInfo
 	if mirrorinfo == nil {
 		log.Warnf("[%s] MirroringInfo not set yet %+v", from.name, mirrorinfo)
 		return errors.New("MirroringInfo not set yet")
@@ -531,10 +536,16 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) e
 		return errors.New("site_name not set yet")
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Got site name %s", from.name, siteName["site_name"]))
+	bootstrapSecretName := fmt.Sprintf("mirror-bootstrap-%s", blockPoolName)
 	bootstrapSecretStruc := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      siteName["site_name"].(string),
+			Name:      bootstrapSecretName,
 			Namespace: ocsNamespace,
+			Labels: map[string]string{
+				"usage":     "bootstrap",
+				"pool":      blockPoolName,
+				"site-name": siteName["site_name"].(string),
+			},
 		},
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
@@ -542,7 +553,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) e
 		},
 		Data: map[string][]byte{
 			"token": poolToken,
-			"pool":  []byte(blockpool),
+			"pool":  []byte(blockPoolName),
 		},
 	}
 	bootstrapSecretJSON, err := json.Marshal(bootstrapSecretStruc)
@@ -550,22 +561,25 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) e
 		log.Warnf("[%s] issues when converting secret to JSON %+v", from.name, bootstrapSecretStruc)
 		return err
 	}
-	_, err = to.typedClient.CoreV1().Secrets(ocsNamespace).Patch(context.TODO(), siteName["site_name"].(string), types.ApplyPatchType, bootstrapSecretJSON, metav1.PatchOptions{FieldManager: "asyncDRhelper"})
+	_, err = to.typedClient.CoreV1().Secrets(ocsNamespace).
+		Patch(context.TODO(), bootstrapSecretName,
+			types.ApplyPatchType, bootstrapSecretJSON, metav1.PatchOptions{FieldManager: "asyncDRhelper"})
 	if err != nil {
 		log.WithError(err).Warnf("Issues when creating bootstrap secret in %s location", to.name)
 		return err
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Created bootstrap secret", to.name))
-	// err = cluster.controllerClient.Patch(context.TODO(),
-	// 	&ocsv1.StorageCluster{ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace}},
-	// 	client.RawPatch(types.JSONPatchType, patchClusterJson))
+	mirrroringSecrets := getAllSecretNames(*to)
+	if len(mirrroringSecrets) == 0 {
+		return errors.WithMessagef(err, "No bootstrap secrets found")
+	}
 	rbdMirrorSpec := cephv1.CephRBDMirror{
 		ObjectMeta: metav1.ObjectMeta{Name: "rbd-mirror", Namespace: ocsNamespace},
 		TypeMeta:   metav1.TypeMeta{Kind: "CephRBDMirror", APIVersion: "ceph.rook.io/v1"},
 		Spec: cephv1.RBDMirroringSpec{
-			Count: 1,
+			Count: len(mirrroringSecrets),
 			Peers: cephv1.RBDMirroringPeerSpec{
-				SecretNames: []string{siteName["site_name"].(string)},
+				SecretNames: mirrroringSecrets,
 			},
 		}}
 	rbdMirrorJSON, err := json.Marshal(rbdMirrorSpec)
@@ -582,6 +596,19 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockpool string) e
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Created rbd-mirror CR", to.name))
 	return nil
+}
+
+func getAllSecretNames(cluster kubeAccess) []string {
+	mirrroringSecrets := []string{}
+	secretList, err := cluster.typedClient.CoreV1().
+		Secrets(ocsNamespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "usage=bootstrap"})
+	if err != nil {
+		log.WithError(err).Warnf("[%s] Issues when listing secrets for bootstrap exchange", cluster.name)
+	}
+	for _, secret := range secretList.Items {
+		mirrroringSecrets = append(mirrroringSecrets, secret.Name)
+	}
+	return mirrroringSecrets
 }
 
 func enableOMAPGenerator(cluster kubeAccess) error {
