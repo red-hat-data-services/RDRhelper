@@ -274,12 +274,12 @@ func doInstall() error {
 			return err
 		}
 	} else {
-		if enablePoolMirroring(kubeConfigPrimary, blockpool); err != nil {
+		if err = enablePoolMirroring(kubeConfigPrimary, blockpool); err != nil {
 			log.WithError(err).Warn("Issues when enabling mirroring in primary cluster")
 			showAlert("Issues when enabling mirroring in primary cluster")
 			return err
 		}
-		if enablePoolMirroring(kubeConfigSecondary, blockpool); err != nil {
+		if err = enablePoolMirroring(kubeConfigSecondary, blockpool); err != nil {
 			log.WithError(err).Warn("Issues when enabling mirroring in secondary cluster")
 			showAlert("Issues when enabling mirroring in secondary cluster")
 			return err
@@ -389,20 +389,15 @@ func createStorageClass(cluster kubeAccess, newStorageClass *v1.StorageClass) er
 }
 
 func enablePoolMirroring(cluster kubeAccess, poolname string) error {
-	patchClusterStruc := []patchStringValue{
-		{
-			Op:    "add",
-			Path:  "/spec/managedResources/cephBlockPools/reconcileStrategy",
-			Value: "ignore",
-		},
-	}
-	patchClusterJson, err := json.Marshal(patchClusterStruc)
-	if err != nil {
-		return errors.WithMessage(err, "Issues when converting StorageCluster Patch to JSON")
-	}
+	patchClusterJson := `
+	{
+		"spec": {
+		  "managedResources": { "cephBlockPools": { "reconcileStrategy": "ignore" } }
+		}
+	}`
 
 	currentBlockPool := cephv1.CephBlockPool{}
-	err = cluster.controllerClient.Get(context.TODO(),
+	err := cluster.controllerClient.Get(context.TODO(),
 		types.NamespacedName{Name: poolname, Namespace: ocsNamespace},
 		&currentBlockPool)
 	if err != nil {
@@ -427,7 +422,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 
 	err = cluster.controllerClient.Patch(context.TODO(),
 		&ocsv1.StorageCluster{ObjectMeta: metav1.ObjectMeta{Name: "ocs-storagecluster", Namespace: ocsNamespace}},
-		client.RawPatch(types.JSONPatchType, patchClusterJson))
+		client.RawPatch(types.MergePatchType, []byte(patchClusterJson)))
 
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when patching StorageCluster in %s cluster", cluster.name)
