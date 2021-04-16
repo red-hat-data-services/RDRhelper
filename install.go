@@ -8,6 +8,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	ocsv1 "github.com/openshift/ocs-operator/api/v1"
+	"github.com/operator-framework/api/pkg/lib/version"
 	operatorsv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorsv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/pkg/errors"
@@ -74,6 +75,16 @@ func init() {
 }
 
 func showBlockPoolChoice() {
+	err := checkInstallRequirements(kubeConfigPrimary)
+	if err != nil {
+		showAlert(fmt.Sprintf("Install requirements are not met in the primary cluster!\n%s", err))
+		return
+	}
+	err = checkInstallRequirements(kubeConfigSecondary)
+	if err != nil {
+		showAlert(fmt.Sprintf("Install requirements are not met in the secondary cluster!\n%s", err))
+		return
+	}
 
 	form := tview.NewForm().
 		AddCheckbox("Install OADP for CR backups", true, func(checked bool) { installOADP = checked }).
@@ -657,13 +668,13 @@ func checkForOMAPGenerator(cluster kubeAccess) bool {
 
 func doInstallOADP(cluster kubeAccess) error {
 	if err := operatorsv1alpha1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
-		errors.WithMessagef(err, "[%s] Issues when adding operator API schemas", cluster.name)
+		return errors.WithMessagef(err, "[%s] Issues when adding operator API schemas", cluster.name)
 	}
 	if err := operatorsv1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
-		errors.WithMessagef(err, "[%s] Issues when adding operator API schemas", cluster.name)
+		return errors.WithMessagef(err, "[%s] Issues when adding operator API schemas", cluster.name)
 	}
 	if err := velerov1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
-		errors.WithMessagef(err, "[%s] Issues when adding velero schemas", cluster.name)
+		return errors.WithMessagef(err, "[%s] Issues when adding velero schemas", cluster.name)
 	}
 
 	// Create instead of Patch, because Patch created too many issues... If this fails, it's 99% of the time because the namespace already exists
@@ -888,4 +899,65 @@ func validateS3info() bool {
 	// TODO: Do some more smart validation on the S3infos that will work on all cloud providers and the RGW
 
 	return true
+}
+
+func checkInstallRequirements(cluster kubeAccess) error {
+	ocsVersion, err := checkForOCSCSV(cluster)
+	if err != nil {
+		return errors.WithMessagef(err, "[%s] OCS not properly installed", cluster.name)
+	}
+	if ocsVersion.Major != uint64(4) || ocsVersion.Minor != uint64(7) {
+		return errors.WithMessagef(err, "[%s] OCS version does not match 4.7 - detected version %d.%d", cluster.name, ocsVersion.Major, ocsVersion.Minor)
+	}
+
+	storageClusterRes := schema.GroupVersionResource{
+		Group:    "ocs.openshift.io",
+		Version:  "v1",
+		Resource: "storageclusters",
+	}
+	storageClusterIdentifier := types.NamespacedName{
+		Name:      "ocs-storagecluster",
+		Namespace: ocsNamespace,
+	}
+	status, err := getObjectStatus(storageClusterRes, storageClusterIdentifier, cluster)
+	if err != nil {
+		return errors.WithMessagef(err, "[%s] Issues when checking StorageCluster status", cluster.name)
+	}
+	if status != "Ready" {
+		return errors.Errorf("StorageCluster is not ready yet - current status is %s", status)
+	}
+
+	return nil
+}
+
+func checkForOCSCSV(cluster kubeAccess) (version.OperatorVersion, error) {
+	if err := operatorsv1alpha1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
+		return version.OperatorVersion{}, errors.WithMessagef(err, "[%s] Issues when adding operator API schemas", cluster.name)
+	}
+	var csvs operatorsv1alpha1.ClusterServiceVersionList
+	err := cluster.controllerClient.List(context.TODO(),
+		&csvs, client.MatchingLabels{"operators.coreos.com/ocs-operator.openshift-storage": ""})
+	if err != nil {
+		return version.OperatorVersion{}, errors.WithMessagef(err, "[%s] issues when listing OADP ClusterServiceVersions", cluster.name)
+	}
+	csvCount := len(csvs.Items)
+	if csvCount == 0 {
+		return version.OperatorVersion{}, errors.New("No OCS CSV found")
+	}
+	if csvCount > 1 {
+		return version.OperatorVersion{}, errors.New("More than one OCS CSV found")
+	}
+	return csvs.Items[0].Spec.Version, nil
+}
+
+func getObjectStatus(resource schema.GroupVersionResource, identifier types.NamespacedName, cluster kubeAccess) (string, error) {
+	obj, err := cluster.dynamicClient.Resource(resource).Namespace(identifier.Namespace).Get(context.TODO(), identifier.Name, metav1.GetOptions{})
+	if err != nil {
+		return "", errors.WithMessagef(err, "[%s] Issues when fetching %s/%s in namespace %s", cluster.name, resource.Resource, identifier.Name, identifier.Namespace)
+	}
+	status := obj.Object["status"].(map[string]interface{})
+	if status == nil || status["phase"] == nil || status["phase"].(string) == "" {
+		return "", errors.New("[%s] Status of %s/%s in namespace %s is not set yet")
+	}
+	return status["phase"].(string), nil
 }
