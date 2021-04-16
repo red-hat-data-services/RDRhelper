@@ -85,6 +85,11 @@ func showBlockPoolChoice() {
 		showAlert(fmt.Sprintf("Install requirements are not met in the secondary cluster!\n%s", err))
 		return
 	}
+	err = checkNetworkBetweenClusters(kubeConfigPrimary, kubeConfigSecondary)
+	if err != nil {
+		showAlert(fmt.Sprintf("Network connection between cluster could not be checked successfully!\n%s", err))
+		return
+	}
 
 	form := tview.NewForm().
 		AddCheckbox("Install OADP for CR backups", true, func(checked bool) { installOADP = checked }).

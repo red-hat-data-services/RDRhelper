@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -48,26 +49,12 @@ func executeInPod(cluster kubeAccess, pod *corev1.Pod, command string) (stdout s
 	return stdout, stderr, nil
 }
 
-func getCephStatus(cluster kubeAccess) (string, error) {
-	toolBoxPod, err := getToolsPod(cluster)
-	if err != nil {
-		return "", err
-	}
-	log.WithField("podname", toolBoxPod.Name).Info("Tools Pod found")
-	stdout, stderr, err := executeInPod(cluster, &toolBoxPod, "ceph -s")
-	if err != nil {
-		return "", err
-	}
-	log.WithField("stdout", stdout).WithField("stderr", stderr).Infof("EXECUTE!")
-	return stdout, nil
-}
-
 func executeInToolbox(cluster kubeAccess, command string) (string, string, error) {
 	toolBoxPod, err := getToolsPod(cluster)
 	if err != nil {
 		return "", "", err
 	}
-	log.WithField("podname", toolBoxPod.Name).Info("Tools Pod found")
+	log.WithField("podname", toolBoxPod.Name).Debug("Pod found")
 
 	stdout, stderr, err := executeInPod(cluster, &toolBoxPod, command)
 	if err != nil {
@@ -92,4 +79,49 @@ func getToolsPod(cluster kubeAccess) (corev1.Pod, error) {
 	}
 	return list.Items[0], nil
 
+}
+
+func getNetworkCheckPods(cluster kubeAccess) (*corev1.PodList, error) {
+	list, err := cluster.typedClient.CoreV1().Pods("openshift-network-diagnostics").List(context.TODO(), metav1.ListOptions{LabelSelector: "app=network-check-target"})
+	if err != nil || len(list.Items) == 0 {
+		errors.Wrapf(err, "could not find network-check pod in %s namespace", "openshift-network-diagnostics")
+		return &corev1.PodList{}, err
+	}
+	return list, nil
+}
+
+func checkNetworkBetweenClusters(from, to kubeAccess) error {
+	networkCheckPodsSource, err := getNetworkCheckPods(from)
+	if err != nil {
+		return err
+	}
+	networkCheckPodsTarget, err := getNetworkCheckPods(to)
+	if err != nil {
+		return err
+	}
+
+	var ips []string
+	for _, targetPod := range networkCheckPodsTarget.Items {
+		if targetPod.Status.PodIP == "" {
+			continue
+		}
+		ips = append(ips, targetPod.Status.PodIP)
+	}
+	if len(ips) == 0 {
+		return errors.Errorf("Could not find any IPs to connect to in the %s cluster", to.name)
+	}
+
+	for _, ip := range ips {
+		stdout, stderr, err := executeInPod(from, &networkCheckPodsSource.Items[0], fmt.Sprintf("curl --silent --fail %s:8080", ip))
+		if err != nil {
+			return err
+		}
+		if stderr != "" {
+			log.WithField("command", fmt.Sprintf("curl %s", ip)).WithField("stderr", stderr).Warn("Command executed with error")
+			return errors.Errorf("Command %s executed with error.\nStderr %s\nStdout %s", fmt.Sprintf("curl %s", ip), stderr, stdout)
+		}
+		log.WithField("stdout", stdout).WithField("stderr", stderr).Trace("EXECUTE!")
+	}
+
+	return nil
 }
