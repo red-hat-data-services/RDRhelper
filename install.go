@@ -53,7 +53,9 @@ var installText = tview.NewTextView().
 	SetChangedFunc(func() {
 		app.Draw()
 	})
-var ocsNamespace = "openshift-storage"
+
+const ocsNamespace = "openshift-storage"
+
 var useNewBlockPoolForMirroring = false
 var installOADP = true
 
