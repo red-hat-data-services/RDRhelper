@@ -22,6 +22,11 @@ var primaryPVCs, secondaryPVCs *tview.Table
 var pvcStatusFrame *tview.Frame
 
 func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
+	// Check if the tools Pod is available
+	_, err := getToolsPod(cluster)
+	if err != nil {
+		showAlert("The Tools Pod is not ready. Please check that the install has completed successfully.")
+	}
 	table = tview.NewTable().
 		SetSelectable(true, false).
 		SetSeparator(tview.Borders.Vertical).
