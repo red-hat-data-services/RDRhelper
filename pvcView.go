@@ -20,6 +20,7 @@ import (
 
 var primaryPVCs, secondaryPVCs *tview.Table
 var pvcStatusFrame *tview.Frame
+var oadpAvailable = false
 
 func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
 	// Check if the tools Pod is available
@@ -27,6 +28,12 @@ func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
 	if err != nil {
 		showAlert("The Tools Pod is not ready. Please check that the install has completed successfully.")
 	}
+	// Check if OADP is available
+	podlist, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{LabelSelector: "component=velero"})
+	if err == nil && len(podlist.Items) > 0 {
+		oadpAvailable = true
+	}
+
 	table = tview.NewTable().
 		SetSelectable(true, false).
 		SetSeparator(tview.Borders.Vertical).
@@ -215,6 +222,9 @@ func ensureActivePVCsBackuped(cluster kubeAccess, table *tview.Table) {
 }
 
 func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
+	if !oadpAvailable {
+		return
+	}
 	snapshotVolumeSetting := false
 	backupCR := velerov1.Backup{
 		TypeMeta: metav1.TypeMeta{
