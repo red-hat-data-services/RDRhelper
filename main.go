@@ -35,16 +35,7 @@ func main() {
 		mainMenu,
 		true)
 
-	pages.AddPage("notImplemented",
-		tview.NewModal().
-			SetText("This is not implemented yet").
-			AddButtons([]string{"OK"}).
-			SetDoneFunc(func(buttonIndex int, buttonLabel string) { pages.HidePage("notImplemented") }),
-		false,
-		false)
-
 	appFrame = tview.NewFrame(pages)
-	updateFrame()
 
 	readConfig()
 
@@ -67,7 +58,7 @@ func pagesChangedFunc() {
 		return
 	}
 	mainMenu.
-		InsertItem(0, "Verify Install", "Verify correct AsyncDR installation", '2', func() { pages.ShowPage("notImplemented") }).
+		InsertItem(0, "Verify Install", "Verify correct AsyncDR installation", '2', func() { showAlert("This is not implemented yet") }).
 		InsertItem(0, "Install", "Install AsyncDR", '1', func() { showBlockPoolChoice() })
 
 	if checkForOMAPGenerator(kubeConfigPrimary) && checkForOMAPGenerator(kubeConfigSecondary) {
