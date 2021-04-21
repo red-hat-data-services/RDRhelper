@@ -488,28 +488,28 @@ func enableToolbox(cluster kubeAccess) error {
 	return nil
 }
 
-func changeRBDStorageClasstoRetain(cluster kubeAccess) error {
-	class, err := cluster.typedClient.StorageV1().StorageClasses().Get(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.GetOptions{})
-	if err != nil {
-		return errors.WithMessagef(err, "Issues when fetching StorageClass in %s cluster", cluster.name)
-	}
-	policy := corev1.PersistentVolumeReclaimRetain
-	class.ReclaimPolicy = &policy
-	class.TypeMeta = metav1.TypeMeta{APIVersion: "storage.k8s.io/v1", Kind: "StorageClass"}
-	class.ManagedFields = nil
-	class.ResourceVersion = ""
+// func changeRBDStorageClasstoRetain(cluster kubeAccess) error {
+// 	class, err := cluster.typedClient.StorageV1().StorageClasses().Get(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.GetOptions{})
+// 	if err != nil {
+// 		return errors.WithMessagef(err, "Issues when fetching StorageClass in %s cluster", cluster.name)
+// 	}
+// 	policy := corev1.PersistentVolumeReclaimRetain
+// 	class.ReclaimPolicy = &policy
+// 	class.TypeMeta = metav1.TypeMeta{APIVersion: "storage.k8s.io/v1", Kind: "StorageClass"}
+// 	class.ManagedFields = nil
+// 	class.ResourceVersion = ""
 
-	err = cluster.typedClient.StorageV1().StorageClasses().Delete(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.DeleteOptions{})
-	if err != nil {
-		return errors.WithMessagef(err, "Issues when temporarily deleting StorageClass in %s cluster", cluster.name)
-	}
-	_, err = cluster.typedClient.StorageV1().StorageClasses().Create(context.TODO(), class, metav1.CreateOptions{})
-	if err != nil {
-		return errors.WithMessagef(err, "Issues when creating new StorageClass in %s cluster", cluster.name)
-	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] OCS RBD Storage Class retain policy changed to retain", cluster.name))
-	return nil
-}
+// 	err = cluster.typedClient.StorageV1().StorageClasses().Delete(context.TODO(), "ocs-storagecluster-ceph-rbd", metav1.DeleteOptions{})
+// 	if err != nil {
+// 		return errors.WithMessagef(err, "Issues when temporarily deleting StorageClass in %s cluster", cluster.name)
+// 	}
+// 	_, err = cluster.typedClient.StorageV1().StorageClasses().Create(context.TODO(), class, metav1.CreateOptions{})
+// 	if err != nil {
+// 		return errors.WithMessagef(err, "Issues when creating new StorageClass in %s cluster", cluster.name)
+// 	}
+// 	addRowOfTextOutput(fmt.Sprintf("[%s] OCS RBD Storage Class retain policy changed to retain", cluster.name))
+// 	return nil
+// }
 
 func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName string) error {
 	var blockPool cephv1.CephBlockPool
