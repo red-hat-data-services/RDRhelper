@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -69,6 +70,11 @@ func init() {
 			installText.Clear()
 			pages.RemovePage("install")
 			pages.SwitchToPage("main")
+			logFile, err := os.OpenFile("asyncDRhelper.log",
+				os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+			if err != nil {
+				panic(err)
+			}
 			log.Out = logFile
 		})
 	appConfig.S3info.Objectprefix = "velero"
@@ -362,6 +368,11 @@ func doInstall() error {
 	addRowOfTextOutput("Press ENTER to get back to main")
 
 	// Once we're finished, set logger back to stdout and file
+	logFile, err = os.OpenFile("asyncDRhelper.log",
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
 	log.Out = logFile
 	return nil
 }

@@ -22,7 +22,8 @@ func init() {
 }
 
 func main() {
-	logFile, err := os.Create("asyncDRhelper.log")
+	logFile, err := os.OpenFile("asyncDRhelper.log",
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
