@@ -9,15 +9,13 @@ import (
 
 var pages = tview.NewPages()
 var app = tview.NewApplication()
-var logFile *os.File
 var log = logrus.New()
 var mainMenu = tview.NewList()
 
 func init() {
 	log.SetFormatter(&logrus.TextFormatter{
-		DisableColors:    false,
-		FullTimestamp:    false,
-		DisableTimestamp: true,
+		DisableColors: false,
+		FullTimestamp: false,
 	})
 }
 
@@ -59,7 +57,11 @@ func pagesChangedFunc() {
 	}
 	mainMenu.
 		InsertItem(0, "Verify Install", "Verify correct AsyncDR installation", '2', func() { showAlert("This is not implemented yet") }).
-		InsertItem(0, "Install", "Install AsyncDR", '1', func() { showBlockPoolChoice() })
+		InsertItem(0, "Install", "Install AsyncDR", '1', func() {
+			log.Info("Checking requirements")
+			showModal("checkRequirement", "checking requirements for install...", []string{}, nil)
+			go showBlockPoolChoice()
+		})
 
 	if checkForOMAPGenerator(kubeConfigPrimary) && checkForOMAPGenerator(kubeConfigSecondary) {
 		mainMenu.

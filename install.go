@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -61,6 +60,7 @@ var useNewBlockPoolForMirroring = false
 var installOADP = true
 
 func addRowOfTextOutput(newText string) {
+	log.Info(newText)
 	fmt.Fprintln(installText, newText)
 }
 
@@ -70,12 +70,6 @@ func init() {
 			installText.Clear()
 			pages.RemovePage("install")
 			pages.SwitchToPage("main")
-			logFile, err := os.OpenFile("asyncDRhelper.log",
-				os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-			if err != nil {
-				panic(err)
-			}
-			log.Out = logFile
 		})
 	appConfig.S3info.Objectprefix = "velero"
 	appConfig.S3info.S3ForcePathStyle = true
@@ -98,6 +92,8 @@ func showBlockPoolChoice() {
 		showAlert(fmt.Sprintf("Network connection between cluster could not be checked successfully!\n%s", err))
 		return
 	}
+	log.Info("Install requirements met")
+	pages.RemovePage("checkRequirement")
 
 	form := tview.NewForm().
 		AddCheckbox("Install OADP for CR backups", true, func(checked bool) { installOADP = checked }).
@@ -127,7 +123,7 @@ func showBlockPoolChoice() {
 	container.AddItem(form, 0, 1, true)
 
 	pages.AddAndSwitchToPage("blockPoolChoice", container, true)
-
+	app.Draw()
 }
 
 func gatherS3Info() {
@@ -185,8 +181,6 @@ func installReplication() {
 }
 
 func doInstall() error {
-	log.Out = installText
-
 	addRowOfTextOutput("Starting Install!")
 	if useNewBlockPoolForMirroring {
 		addRowOfTextOutput("Using dedicated Block Pool")
@@ -210,15 +204,23 @@ func doInstall() error {
 
 	if err = ocsv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme()); err != nil {
 		log.WithError(err).Warn("Issues when adding the ocsv1 scheme to the primary client")
+		showAlert("Issues when adding the ocsv1 scheme to the primary client")
+		return err
 	}
 	if err = ocsv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme()); err != nil {
 		log.WithError(err).Warn("Issues when adding the ocsv1 scheme to the secondary client")
+		showAlert("Issues when adding the ocsv1 scheme to the secondary client")
+		return err
 	}
 	if err = cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme()); err != nil {
 		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
+		showAlert("Issues when adding the cephv1 scheme to the primary client")
+		return err
 	}
 	if err = cephv1.AddToScheme(kubeConfigSecondary.controllerClient.Scheme()); err != nil {
 		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the secondary client")
+		showAlert("Issues when adding the cephv1 scheme to the secondary client")
+		return err
 	}
 
 	blockpool := "ocs-storagecluster-cephblockpool"
@@ -367,13 +369,6 @@ func doInstall() error {
 	addRowOfTextOutput("Install steps done!!")
 	addRowOfTextOutput("Press ENTER to get back to main")
 
-	// Once we're finished, set logger back to stdout and file
-	logFile, err = os.OpenFile("asyncDRhelper.log",
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		panic(err)
-	}
-	log.Out = logFile
 	return nil
 }
 
@@ -524,8 +519,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 		err := from.controllerClient.List(context.TODO(),
 			&cbpList, &client.ListOptions{Namespace: ocsNamespace})
 		if err != nil {
-			log.WithError(err).Warnf("[%s] Issues when listing CephBlockPools", from.name)
-			return err
+			return errors.WithMessagef(err, "[%s] Issues when listing CephBlockPools", from.name)
 		}
 		for _, cbp := range cbpList.Items {
 			if cbp.Name == blockPoolName {
@@ -549,8 +543,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 
 	secret, err := from.typedClient.CoreV1().Secrets(ocsNamespace).Get(context.TODO(), tokenSecretName, metav1.GetOptions{})
 	if err != nil {
-		log.WithError(err).Warnf("[%s] Issues when fetching secret token", from.name)
-		return err
+		return errors.WithMessagef(err, "[%s] Issues when fetching secret token", from.name)
 	}
 	poolToken := secret.Data["token"]
 	addRowOfTextOutput(fmt.Sprintf("[%s] Got Pool Mirror secret from secret %s", from.name, tokenSecretName))
@@ -587,15 +580,13 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 	}
 	bootstrapSecretJSON, err := json.Marshal(bootstrapSecretStruc)
 	if err != nil {
-		log.Warnf("[%s] issues when converting secret to JSON %+v", from.name, bootstrapSecretStruc)
-		return err
+		return errors.WithMessagef(err, "[%s] issues when converting secret to JSON %+v", from.name, bootstrapSecretStruc)
 	}
 	_, err = to.typedClient.CoreV1().Secrets(ocsNamespace).
 		Patch(context.TODO(), bootstrapSecretName,
 			types.ApplyPatchType, bootstrapSecretJSON, metav1.PatchOptions{FieldManager: "asyncDRhelper"})
 	if err != nil {
-		log.WithError(err).Warnf("Issues when creating bootstrap secret in %s location", to.name)
-		return err
+		return errors.WithMessagef(err, "Issues when creating bootstrap secret in %s location", to.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Created bootstrap secret", to.name))
 	mirrroringSecrets := getAllSecretNames(*to)
@@ -613,15 +604,13 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 		}}
 	rbdMirrorJSON, err := json.Marshal(rbdMirrorSpec)
 	if err != nil {
-		log.Warnf("[%s] issues when converting rbd-mirror Spec to JSON %+v", from.name, rbdMirrorSpec)
-		return err
+		return errors.WithMessagef(err, "[%s] issues when converting rbd-mirror Spec to JSON %+v", from.name, rbdMirrorSpec)
 	}
 	err = to.controllerClient.Patch(context.TODO(),
 		&rbdMirrorSpec,
 		client.RawPatch(types.ApplyPatchType, rbdMirrorJSON), &client.PatchOptions{FieldManager: "asyncDRhelper"})
 	if err != nil {
-		log.WithError(err).Warnf("Issues when creating rbd-mirror CR in %s location", to.name)
-		return err
+		return errors.WithMessagef(err, "Issues when creating rbd-mirror CR in %s location", to.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Created rbd-mirror CR", to.name))
 	return nil
@@ -633,6 +622,7 @@ func getAllSecretNames(cluster kubeAccess) []string {
 		Secrets(ocsNamespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "usage=bootstrap"})
 	if err != nil {
 		log.WithError(err).Warnf("[%s] Issues when listing secrets for bootstrap exchange", cluster.name)
+		return []string{}
 	}
 	for _, secret := range secretList.Items {
 		mirrroringSecrets = append(mirrroringSecrets, secret.Name)
@@ -651,10 +641,8 @@ func enableOMAPGenerator(cluster kubeAccess) error {
 	payloadBytes, _ := json.Marshal(payload)
 
 	addRowOfTextOutput(fmt.Sprintf("[%s] Patching CM for OMAP Generator", cluster.name))
-	log.Debugf("  Payload: %+v", payload)
 	_, err := configMapClient.Patch(context.TODO(), "rook-ceph-operator-config", types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
 	if err != nil {
-		log.WithError(err).Errorf("[%s] Failed with patching", cluster.name)
 		return errors.WithMessagef(err, "failed with patching the OMAP client on %s", cluster.name)
 	}
 	addRowOfTextOutput(fmt.Sprintf("[%s] Patched CM for OMAP Generator", cluster.name))
@@ -797,7 +785,7 @@ func doInstallOADP(cluster kubeAccess) error {
 		err = cluster.controllerClient.List(context.TODO(),
 			&csvs, client.MatchingLabels{"operators.coreos.com/oadp-operator.oadp-operator": ""})
 		if err != nil {
-			log.WithError(err).Warnf("[%s] issues when listing OADP ClusterServiceVersions - Retrying...", cluster.name)
+			addRowOfTextOutput(fmt.Sprintf("[%s] issues when listing OADP ClusterServiceVersions - Retrying...", cluster.name))
 			time.Sleep(9 * time.Second)
 			continue
 		}
@@ -865,7 +853,7 @@ func verifyOADPinstall(cluster kubeAccess) error {
 	for {
 		podlist, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{LabelSelector: "component=velero"})
 		if err != nil {
-			log.WithError(err).Warnf("[%s] issues when listing Pods in oadp-operator namespace - Retrying...", cluster.name)
+			addRowOfTextOutput(fmt.Sprintf("[%s] issues when listing Pods in oadp-operator namespace - Retrying...", cluster.name))
 			time.Sleep(9 * time.Second)
 			continue
 		}
