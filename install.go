@@ -386,7 +386,7 @@ func createBlockPool(cluster kubeAccess, newBlockPool *cephv1.CephBlockPool) err
 	err = cluster.controllerClient.Patch(context.TODO(),
 		newBlockPool.DeepCopy(),
 		client.RawPatch(types.ApplyPatchType, []byte(patchedPoolJson)),
-		&client.PatchOptions{FieldManager: "asyncDRhelper"})
+		&client.PatchOptions{FieldManager: "RDRhelper"})
 
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when applying CephBlockPool in %s cluster", cluster.name)
@@ -403,7 +403,7 @@ func createStorageClass(cluster kubeAccess, newStorageClass *v1.StorageClass) er
 		newStorageClass.Name,
 		types.ApplyPatchType,
 		patchClassJson,
-		metav1.PatchOptions{FieldManager: "asyncDRhelper"},
+		metav1.PatchOptions{FieldManager: "RDRhelper"},
 	)
 
 	if err != nil {
@@ -584,7 +584,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 	}
 	_, err = to.typedClient.CoreV1().Secrets(ocsNamespace).
 		Patch(context.TODO(), bootstrapSecretName,
-			types.ApplyPatchType, bootstrapSecretJSON, metav1.PatchOptions{FieldManager: "asyncDRhelper"})
+			types.ApplyPatchType, bootstrapSecretJSON, metav1.PatchOptions{FieldManager: "RDRhelper"})
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when creating bootstrap secret in %s location", to.name)
 	}
@@ -608,7 +608,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 	}
 	err = to.controllerClient.Patch(context.TODO(),
 		&rbdMirrorSpec,
-		client.RawPatch(types.ApplyPatchType, rbdMirrorJSON), &client.PatchOptions{FieldManager: "asyncDRhelper"})
+		client.RawPatch(types.ApplyPatchType, rbdMirrorJSON), &client.PatchOptions{FieldManager: "RDRhelper"})
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when creating rbd-mirror CR in %s location", to.name)
 	}
@@ -716,7 +716,7 @@ func doInstallOADP(cluster kubeAccess) error {
 	err = cluster.controllerClient.Patch(context.TODO(),
 		&oadpSubscriptionSpec,
 		client.RawPatch(types.ApplyPatchType, oadpSubscriptionPatchedJSON),
-		&client.PatchOptions{FieldManager: "asyncDRhelper"})
+		&client.PatchOptions{FieldManager: "RDRhelper"})
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] issues when applying OADP Subscription", cluster.name)
 	}
@@ -746,7 +746,7 @@ func doInstallOADP(cluster kubeAccess) error {
 	err = cluster.controllerClient.Patch(context.TODO(),
 		&oadpOGroupSpec,
 		client.RawPatch(types.ApplyPatchType, oadpOGroupPatchedJSON),
-		&client.PatchOptions{FieldManager: "asyncDRhelper"})
+		&client.PatchOptions{FieldManager: "RDRhelper"})
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] issues when applying OADP OperatorGroup", cluster.name)
 	}
@@ -772,7 +772,7 @@ func doInstallOADP(cluster kubeAccess) error {
 		"cloud-credentials",
 		types.ApplyPatchType,
 		s3CredJSON,
-		metav1.PatchOptions{FieldManager: "asyncDRhelper"})
+		metav1.PatchOptions{FieldManager: "RDRhelper"})
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] issues when creating S3 secret", cluster.name)
 	}
@@ -841,7 +841,7 @@ spec:
 		Resource: "veleros",
 	}
 	_, err = cluster.dynamicClient.Resource(veleroRes).Namespace("oadp-operator").Patch(context.TODO(),
-		"oadp-velero", types.ApplyPatchType, []byte(veleroJSON), metav1.PatchOptions{FieldManager: "asyncDRhelper"})
+		"oadp-velero", types.ApplyPatchType, []byte(veleroJSON), metav1.PatchOptions{FieldManager: "RDRhelper"})
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] issues when creating Velero CR", cluster.name)
 	}

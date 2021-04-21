@@ -43,7 +43,7 @@ var kubeConfigPrimary, kubeConfigSecondary kubeAccess
 func updateFrame() {
 	appFrame.Clear()
 	appFrame.
-		AddText("Async DR Helper Tool", true, tview.AlignCenter, tcell.ColorWhite).
+		AddText("Regional DR Helper Tool", true, tview.AlignCenter, tcell.ColorWhite).
 		AddText(fmt.Sprintf("Primary: %s", primaryLocation), false, tview.AlignLeft, tcell.ColorWhite).
 		AddText(fmt.Sprintf("Secondary: %s", secondaryLocation), false, tview.AlignRight, tcell.ColorWhite)
 	pagesChangedFunc()
@@ -55,7 +55,7 @@ func readConfig() error {
 		log.WithError(err).Warn("Could not determine user's home directory")
 		return err
 	}
-	f, err := os.Open(path.Join(home, "/.config/asyncDRhelper.conf"))
+	f, err := os.Open(path.Join(home, "/.config/RDRhelper.conf"))
 	if err != nil {
 		return writeNewConfig()
 	}
@@ -86,7 +86,7 @@ func writeNewConfig() error {
 		log.WithError(err).Warn("Could not determine user's home directory")
 		return err
 	}
-	f, err := os.Create(path.Join(home, "/.config/asyncDRhelper.conf"))
+	f, err := os.Create(path.Join(home, "/.config/RDRhelper.conf"))
 	if err != nil {
 
 		pages.AddPage("error",

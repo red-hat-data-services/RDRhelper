@@ -232,7 +232,7 @@ func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
 			Kind:       "Backup",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "async-dr-backup",
+			Name:      "regional-dr-backup",
 			Namespace: "oadp-operator",
 		},
 		Spec: velerov1.BackupSpec{
@@ -257,7 +257,7 @@ func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
 	err = cluster.controllerClient.Patch(context.TODO(),
 		&backupCR,
 		client.RawPatch(types.ApplyPatchType, []byte(backupPatchedJSON)),
-		&client.PatchOptions{FieldManager: "asyncDRhelper"})
+		&client.PatchOptions{FieldManager: "RDRhelper"})
 
 	if err != nil {
 		log.WithError(err).Warnf("[%s] Issues when applying Backup CR", cluster.name)

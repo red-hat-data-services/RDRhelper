@@ -20,7 +20,7 @@ func init() {
 }
 
 func main() {
-	logFile, err := os.OpenFile("asyncDRhelper.log",
+	logFile, err := os.OpenFile("RDRhelper.log",
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
@@ -56,8 +56,8 @@ func pagesChangedFunc() {
 		return
 	}
 	mainMenu.
-		InsertItem(0, "Verify Install", "Verify correct AsyncDR installation", '2', func() { showAlert("This is not implemented yet") }).
-		InsertItem(0, "Install", "Install AsyncDR", '1', func() {
+		InsertItem(0, "Verify Install", "Verify correct RDR installation", '2', func() { showAlert("This is not implemented yet") }).
+		InsertItem(0, "Install", "Install RDR", '1', func() {
 			log.Info("Checking requirements")
 			showModal("checkRequirement", "checking requirements for install...", []string{}, nil)
 			go showBlockPoolChoice()

@@ -1,4 +1,4 @@
-project_name: asyncDRhelper
+project_name: RDRhelper
 before:
   hooks:
     - go mod download

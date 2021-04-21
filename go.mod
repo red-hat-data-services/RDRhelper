@@ -1,4 +1,4 @@
-module gitlab.consulting.redhat.com/cblum/asyncDRhelper
+module gitlab.consulting.redhat.com/cblum/RDRhelper
 
 go 1.16
 
