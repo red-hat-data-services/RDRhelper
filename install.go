@@ -340,29 +340,31 @@ func doInstall() error {
 		return err
 	}
 
-	err = doInstallOADP(kubeConfigPrimary)
-	if err != nil {
-		log.WithError(err).Warnf("Issues when installing OADP in the %s cluster", "primary")
-		showAlert(fmt.Sprintf("Issues when installing OADP in the %s cluster", "primary"))
-		return err
-	}
-	err = doInstallOADP(kubeConfigSecondary)
-	if err != nil {
-		log.WithError(err).Warnf("Issues when installing OADP in the %s cluster", "secondary")
-		showAlert(fmt.Sprintf("Issues when installing OADP in the %s cluster", "secondary"))
-		return err
-	}
-	err = verifyOADPinstall(kubeConfigPrimary)
-	if err != nil {
-		log.WithError(err).Warnf("Issues when verifying OADP in the %s cluster", "primary")
-		showAlert(fmt.Sprintf("Issues when verifying OADP in the %s cluster", "primary"))
-		return err
-	}
-	err = verifyOADPinstall(kubeConfigSecondary)
-	if err != nil {
-		log.WithError(err).Warnf("Issues when verifying OADP in the %s cluster", "secondary")
-		showAlert(fmt.Sprintf("Issues when verifying OADP in the %s cluster", "secondary"))
-		return err
+	if installOADP {
+		err = doInstallOADP(kubeConfigPrimary)
+		if err != nil {
+			log.WithError(err).Warnf("Issues when installing OADP in the %s cluster", "primary")
+			showAlert(fmt.Sprintf("Issues when installing OADP in the %s cluster", "primary"))
+			return err
+		}
+		err = doInstallOADP(kubeConfigSecondary)
+		if err != nil {
+			log.WithError(err).Warnf("Issues when installing OADP in the %s cluster", "secondary")
+			showAlert(fmt.Sprintf("Issues when installing OADP in the %s cluster", "secondary"))
+			return err
+		}
+		err = verifyOADPinstall(kubeConfigPrimary)
+		if err != nil {
+			log.WithError(err).Warnf("Issues when verifying OADP in the %s cluster", "primary")
+			showAlert(fmt.Sprintf("Issues when verifying OADP in the %s cluster", "primary"))
+			return err
+		}
+		err = verifyOADPinstall(kubeConfigSecondary)
+		if err != nil {
+			log.WithError(err).Warnf("Issues when verifying OADP in the %s cluster", "secondary")
+			showAlert(fmt.Sprintf("Issues when verifying OADP in the %s cluster", "secondary"))
+			return err
+		}
 	}
 
 	addRowOfTextOutput("")
