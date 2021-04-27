@@ -435,7 +435,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 		Mode:    "image",
 		SnapshotSchedules: []cephv1.SnapshotScheduleSpec{
 			{
-				Interval: "1h",
+				Interval: "5m",
 				// StartTime: "00:00:00-00:00",
 			},
 		},
