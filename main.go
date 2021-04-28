@@ -56,7 +56,7 @@ func pagesChangedFunc() {
 		return
 	}
 	mainMenu.
-		InsertItem(0, "Verify Install", "Verify correct RDR installation", '2', func() { showAlert("This is not implemented yet") }).
+		InsertItem(0, "Verify Install", "Verify correct RDR installation", '2', func() { showVerifyPage(kubeConfigPrimary,kubeConfigSecondary) }).
 		InsertItem(0, "Install", "Install RDR", '1', func() {
 			log.Info("Checking requirements")
 			showModal("checkRequirement", "checking requirements for install...", []string{}, nil)
