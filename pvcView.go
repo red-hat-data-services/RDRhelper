@@ -28,11 +28,7 @@ func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
 	if err != nil {
 		showAlert("The Tools Pod is not ready. Please check that the install has completed successfully.")
 	}
-	// Check if OADP is available
-	podlist, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{LabelSelector: "component=velero"})
-	if err == nil && len(podlist.Items) > 0 {
-		oadpAvailable = true
-	}
+	oadpAvailable = checkForOADP(currentCluster)
 
 	table = tview.NewTable().
 		SetSelectable(true, false).

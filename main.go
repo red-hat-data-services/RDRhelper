@@ -65,45 +65,8 @@ func pagesChangedFunc() {
 
 	if checkForOMAPGenerator(kubeConfigPrimary) && checkForOMAPGenerator(kubeConfigSecondary) {
 		mainMenu.
-			InsertItem(2, "Failover / Failback", "Failover to secondary or Failback to primary location", '9', func() {}).
-			InsertItem(2, "Configure Secondary", "Configure PVs for DR on the secondary side", '4', func() { setPVCViewPage(secondaryPVCs, kubeConfigSecondary) }).
-			InsertItem(2, "Configure Primary", "Configure PVs for DR on the primary side", '3', func() { setPVCViewPage(primaryPVCs, kubeConfigPrimary) })
+			InsertItem(2, "Failover / Failback", "Failover to secondary or Failback to primary location", '9', func() { askSeriousForFailover() }).
+			InsertItem(2, "Configure Secondary", "Configure PVs for DR on the secondary side", '4', func() { setPVCViewPage(secondaryPVCs, kubeConfigSecondary, kubeConfigPrimary) }).
+			InsertItem(2, "Configure Primary", "Configure PVs for DR on the primary side", '3', func() { setPVCViewPage(primaryPVCs, kubeConfigPrimary, kubeConfigSecondary) })
 	}
-}
-
-func showModal(modalTitle string, modalText string, buttons []string, doneFunc func(buttonIndex int, buttonLabel string)) {
-	modal := tview.NewModal().
-		SetText(modalText).
-		AddButtons(buttons).
-		SetDoneFunc(doneFunc)
-
-	pages.AddPage(modalTitle,
-		modal,
-		false,
-		false,
-	)
-	pages.ShowPage(modalTitle)
-}
-
-func showAlert(alertText string) {
-	showModal("alert", alertText, []string{"OK"}, func(buttonIndex int, buttonLabel string) { pages.RemovePage("alert") })
-}
-
-func showInfo(pageTitle string, information string, buttons map[string]func()) {
-	InfoBox := tview.NewTextView().SetText(information)
-	form := tview.NewForm()
-	layout := tview.NewFlex()
-	layout.
-		AddItem(InfoBox, 0, 3, false).
-		AddItem(form, 0, 1, true).
-		SetDirection(tview.FlexRow)
-	layout.SetBorder(true)
-	form.SetButtonsAlign(tview.AlignCenter)
-	for button, selected := range buttons {
-		form.AddButton(button, selected)
-	}
-	pages.AddAndSwitchToPage(pageTitle,
-		layout,
-		true,
-	)
 }
