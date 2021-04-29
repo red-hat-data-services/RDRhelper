@@ -22,9 +22,9 @@ var primaryPVCs, secondaryPVCs *tview.Table
 var pvcStatusFrame *tview.Frame
 var oadpAvailable = false
 
-func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
+func setPVCViewPage(table *tview.Table, currentCluster, otherCluster kubeAccess) {
 	// Check if the tools Pod is available
-	_, err := getToolsPod(cluster)
+	_, err := getToolsPod(currentCluster)
 	if err != nil {
 		showAlert("The Tools Pod is not ready. Please check that the install has completed successfully.")
 	}
@@ -66,11 +66,11 @@ func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
 		case 'x':
 			selectAllFromTable(table, false)
 		case 'r':
-			setPVStati(cluster, true, table)
+			setPVStati(currentCluster, otherCluster, true, table)
 		case 'u':
-			setPVStati(cluster, false, table)
+			setPVStati(currentCluster, otherCluster, false, table)
 		case 's':
-			go populatePVCTable(table, cluster)
+			go populatePVCTable(table, currentCluster)
 		case 'i':
 			row, _ := table.GetSelection()
 			pvcStatus := table.GetCell(row, 2).Text
@@ -80,7 +80,7 @@ func setPVCViewPage(table *tview.Table, cluster kubeAccess) {
 			}
 			pvReference := table.GetCell(row, 0).GetReference()
 			pv := pvReference.(corev1.PersistentVolume)
-			showMirrorInfo(cluster, &pv)
+			showMirrorInfo(currentCluster, &pv)
 		}
 		return event
 	})
@@ -109,13 +109,13 @@ Actions on Selection
 	pvcStatusFrame = tview.NewFrame(container)
 	pvcStatusFrame.SetBorderPadding(0, 0, 0, 0)
 	pvcInfoFrame := tview.NewFrame(pvcStatusFrame).
-		AddText(fmt.Sprintf("PVCs in %s cluster", cluster.name), true, tview.AlignCenter, tcell.ColorWhite)
+		AddText(fmt.Sprintf("PVCs in %s cluster", currentCluster.name), true, tview.AlignCenter, tcell.ColorWhite)
 	pvcInfoFrame.SetBorder(true)
 
 	pages.AddAndSwitchToPage("pvcView",
 		pvcInfoFrame,
 		true)
-	go populatePVCTable(table, cluster)
+	go populatePVCTable(table, currentCluster)
 }
 
 func selectAllFromTable(table *tview.Table, selected bool) {
@@ -173,7 +173,7 @@ func getActiveRows(table *tview.Table) []int {
 }
 
 // setPVStati sets the PV status of selected rows to either active or inactive
-func setPVStati(cluster kubeAccess, enable bool, table *tview.Table) {
+func setPVStati(currentCluster, otherCluster kubeAccess, enable bool, table *tview.Table) {
 	statusText := "active"
 	statusColor := tcell.ColorGreen
 	if !enable {
@@ -192,14 +192,15 @@ func setPVStati(cluster kubeAccess, enable bool, table *tview.Table) {
 			continue
 		}
 		pv := pvReference.(corev1.PersistentVolume)
-		err := setMirrorStatus(cluster, &pv, enable)
+		err := setMirrorStatus(currentCluster, &pv, enable)
 		if err != nil {
 			log.WithError(err).WithField("pvName", pv.Name).Warn("Could not change PV mirror status")
 			continue
 		}
 		table.SetCell(row, 2, tview.NewTableCell(statusText).SetTextColor(statusColor))
 	}
-	ensureActivePVCsBackuped(cluster, table)
+	ensureActivePVCsBackuped(currentCluster, table)
+	go syncPVs(currentCluster, otherCluster)
 }
 
 func ensureActivePVCsBackuped(cluster kubeAccess, table *tview.Table) {
@@ -215,6 +216,106 @@ func ensureActivePVCsBackuped(cluster kubeAccess, table *tview.Table) {
 		namespaces = append(namespaces, namespace)
 	}
 	setNamespacesToBackup(cluster, namespaces)
+}
+
+// syncPVs ensures that PVs in the from cluster are present in the to cluster
+// it also tries to clean up old PVs in the to cluster that are not migrated any more
+func syncPVs(from, to kubeAccess) error {
+	var mirroredPVs []corev1.PersistentVolume
+	pvs, err := from.typedClient.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		log.WithError(err).Warn("Issues when listing pods for PVC list")
+		return err
+	}
+	for _, pv := range pvs.Items {
+		pvc := pv.Spec.ClaimRef
+		if pvc == nil {
+			// This happens for unbound PVs, we skip those
+			continue
+		}
+		mirroringEnabled, err := checkMirrorStatus(from, &pv)
+		if err != nil {
+			log.WithField("PV", pv.Name).WithError(err).Warn("Issues when fetching mirror status")
+			continue
+		}
+		if !mirroringEnabled {
+			continue
+		}
+		mirroredPVs = append(mirroredPVs, pv)
+	}
+	targetPVs, err := to.typedClient.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		log.WithError(err).Warn("Issues when listing pods for PVC list")
+		return err
+	}
+	// Filter for PVs in Released state, these are most likely our mirrored PVs
+	// field-selector does not support status.phase for PVs :/
+	for _, pv := range targetPVs.Items {
+		if pv.Status.Phase != "Released" {
+			continue
+		}
+		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != "openshift-storage.rbd.csi.ceph.com" {
+			// not a CSI backed PV or not a Ceph RBD PV
+			continue
+		}
+		mirroringEnabled, err := checkMirrorStatus(to, &pv)
+		if err != nil {
+			log.WithField("PV", pv.Name).WithError(err).Warn("Issues when fetching mirror status")
+			continue
+		}
+		if !mirroringEnabled {
+			// If the PV is in released state and backed by Ceph-RBD,
+			// it is most likely dangling (not mirrored any more) and we remove it
+			err = to.typedClient.CoreV1().PersistentVolumes().Delete(context.TODO(), pv.Name, metav1.DeleteOptions{})
+			if err != nil {
+				log.WithField("PV", pv.Name).WithError(err).Warnf("Issues when deleting dangling PV from %s cluster", to.name)
+			}
+			continue
+		}
+		// Do something finally!
+		// If the PV is in the list of mirroredPVs, this PV is already synced, remove it from the list
+		// If the PV is NOT in the mirroredPV list, it gets removed from the to cluster
+		if present, index := PVInSlice(pv, mirroredPVs); present {
+			mirroredPVs = RemovePVFromSlice(mirroredPVs, index)
+		} else {
+			// We should not reach this, since if the image is NOT mirrored, it will also not be mirrored on the target cluster
+			err = to.typedClient.CoreV1().PersistentVolumes().Delete(context.TODO(), pv.Name, metav1.DeleteOptions{})
+			if err != nil {
+				log.WithField("PV", pv.Name).WithError(err).Warnf("Issues when deleting dangling PV from %s cluster", to.name)
+				continue
+			}
+		}
+	}
+	// Once we reach this point, the mirroredPVs slice only contains PVs that are mirrored on the primary, but not yet synced on the secondary cluster
+
+	failureDuringCreation := false
+	for _, pv := range mirroredPVs {
+		pv.ResourceVersion = ""
+		_, err = to.typedClient.CoreV1().PersistentVolumes().Create(context.TODO(), &pv, metav1.CreateOptions{})
+		if err != nil {
+			failureDuringCreation = true
+			log.WithField("PV", pv.Name).WithError(err).Warnf("Issues when creating PV in the %s cluster", to.name)
+			continue
+		}
+	}
+	if failureDuringCreation {
+		showAlert(fmt.Sprintf("There were errors when creating PVs in the %s cluster. Please check the log for more information", to.name))
+	}
+
+	return nil
+}
+
+func PVInSlice(pv corev1.PersistentVolume, slice []corev1.PersistentVolume) (bool, int) {
+	for index, slicePV := range slice {
+		if pv.Name == slicePV.Name {
+			return true, index
+		}
+	}
+	return false, -1
+}
+
+func RemovePVFromSlice(slice []corev1.PersistentVolume, index int) []corev1.PersistentVolume {
+	return append(slice[:index], slice[index+1:]...)
 }
 
 func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
