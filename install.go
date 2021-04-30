@@ -59,9 +59,10 @@ const ocsNamespace = "openshift-storage"
 var useNewBlockPoolForMirroring = false
 var installOADP = true
 
-func addRowOfTextOutput(newText string) {
+func addRowOfTextOutput(target *tview.TextView, format string, a ...interface{}) {
+	newText := fmt.Sprintf(format, a...)
 	log.Info(newText)
-	fmt.Fprintln(installText, newText)
+	fmt.Fprintln(target, newText)
 }
 
 func init() {
@@ -181,13 +182,13 @@ func installReplication() {
 }
 
 func doInstall() error {
-	addRowOfTextOutput("Starting Install!")
+	addRowOfTextOutput(installText, "Starting Install!")
 	if useNewBlockPoolForMirroring {
-		addRowOfTextOutput("Using dedicated Block Pool")
+		addRowOfTextOutput(installText, "Using dedicated Block Pool")
 	} else {
-		addRowOfTextOutput("Using default Block Pool")
+		addRowOfTextOutput(installText, "Using default Block Pool")
 	}
-	addRowOfTextOutput("")
+	addRowOfTextOutput(installText, "")
 
 	err := enableOMAPGenerator(kubeConfigPrimary)
 	if err != nil {
@@ -367,9 +368,9 @@ func doInstall() error {
 		}
 	}
 
-	addRowOfTextOutput("")
-	addRowOfTextOutput("Install steps done!!")
-	addRowOfTextOutput("Press ENTER to get back to main")
+	addRowOfTextOutput(installText, "")
+	addRowOfTextOutput(installText, "Install steps done!!")
+	addRowOfTextOutput(installText, "Press ENTER to get back to main")
 
 	return nil
 }
@@ -453,7 +454,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when patching StorageCluster in %s cluster", cluster.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Block Pool reconcile strategy set to ignore", cluster.name))
+	addRowOfTextOutput(installText, "[%s] OCS Block Pool reconcile strategy set to ignore", cluster.name)
 
 	err = cluster.controllerClient.Patch(context.TODO(),
 		&cephv1.CephBlockPool{ObjectMeta: metav1.ObjectMeta{Name: poolname, Namespace: ocsNamespace}},
@@ -461,7 +462,7 @@ func enablePoolMirroring(cluster kubeAccess, poolname string) error {
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when patching CephBlockPool in %s cluster", cluster.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Block Pool Mirroring enabled", cluster.name))
+	addRowOfTextOutput(installText, "[%s] OCS Block Pool Mirroring enabled", cluster.name)
 
 	return nil
 }
@@ -485,7 +486,7 @@ func enableToolbox(cluster kubeAccess) error {
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when enabling Ceph Toolbox in %s cluster", cluster.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] OCS Toolbox enabled", cluster.name))
+	addRowOfTextOutput(installText, "[%s] OCS Toolbox enabled", cluster.name)
 
 	return nil
 }
@@ -509,7 +510,7 @@ func enableToolbox(cluster kubeAccess) error {
 // 	if err != nil {
 // 		return errors.WithMessagef(err, "Issues when creating new StorageClass in %s cluster", cluster.name)
 // 	}
-// 	addRowOfTextOutput(fmt.Sprintf("[%s] OCS RBD Storage Class retain policy changed to retain", cluster.name))
+// 	addRowOfTextOutput(installText,"[%s] OCS RBD Storage Class retain policy changed to retain", cluster.name)
 // 	return nil
 // }
 
@@ -535,7 +536,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 				break
 			}
 		}
-		addRowOfTextOutput(fmt.Sprintf("[%s] mirroring info not yet available in pool status", from.name))
+		addRowOfTextOutput(installText, "[%s] mirroring info not yet available in pool status", from.name)
 		time.Sleep(time.Second * 3)
 	}
 	if tokenSecretName == "" {
@@ -548,7 +549,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 		return errors.WithMessagef(err, "[%s] Issues when fetching secret token", from.name)
 	}
 	poolToken := secret.Data["token"]
-	addRowOfTextOutput(fmt.Sprintf("[%s] Got Pool Mirror secret from secret %s", from.name, tokenSecretName))
+	addRowOfTextOutput(installText, "[%s] Got Pool Mirror secret from secret %s", from.name, tokenSecretName)
 	mirrorinfo := blockPool.Status.MirroringInfo
 	if mirrorinfo == nil {
 		log.Warnf("[%s] MirroringInfo not set yet %+v", from.name, mirrorinfo)
@@ -559,7 +560,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 		log.Warnf("[%s] site_name not set yet %+v", from.name, siteName)
 		return errors.New("site_name not set yet")
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] Got site name %s", from.name, siteName["site_name"]))
+	addRowOfTextOutput(installText, "[%s] Got site name %s", from.name, siteName["site_name"])
 	bootstrapSecretName := fmt.Sprintf("mirror-bootstrap-%s", blockPoolName)
 	bootstrapSecretStruc := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -590,7 +591,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when creating bootstrap secret in %s location", to.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] Created bootstrap secret", to.name))
+	addRowOfTextOutput(installText, "[%s] Created bootstrap secret", to.name)
 	mirrroringSecrets := getAllSecretNames(*to)
 	if len(mirrroringSecrets) == 0 {
 		return errors.WithMessagef(err, "No bootstrap secrets found")
@@ -614,7 +615,7 @@ func exchangeMirroringBootstrapSecrets(from, to *kubeAccess, blockPoolName strin
 	if err != nil {
 		return errors.WithMessagef(err, "Issues when creating rbd-mirror CR in %s location", to.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] Created rbd-mirror CR", to.name))
+	addRowOfTextOutput(installText, "[%s] Created rbd-mirror CR", to.name)
 	return nil
 }
 
@@ -642,17 +643,17 @@ func enableOMAPGenerator(cluster kubeAccess) error {
 	}}
 	payloadBytes, _ := json.Marshal(payload)
 
-	addRowOfTextOutput(fmt.Sprintf("[%s] Patching CM for OMAP Generator", cluster.name))
+	addRowOfTextOutput(installText, "[%s] Patching CM for OMAP Generator", cluster.name)
 	_, err := configMapClient.Patch(context.TODO(), "rook-ceph-operator-config", types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
 	if err != nil {
 		return errors.WithMessagef(err, "failed with patching the OMAP client on %s", cluster.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] Patched CM for OMAP Generator", cluster.name))
-	addRowOfTextOutput(fmt.Sprintf("[%s] Waiting for OMAP generator container to appear", cluster.name))
+	addRowOfTextOutput(installText, "[%s] Patched CM for OMAP Generator", cluster.name)
+	addRowOfTextOutput(installText, "[%s] Waiting for OMAP generator container to appear", cluster.name)
 
 	for {
 		if checkForOMAPGenerator(cluster) {
-			addRowOfTextOutput(fmt.Sprintf("[%s] OMAP generator container appeared", cluster.name))
+			addRowOfTextOutput(installText, "[%s] OMAP generator container appeared", cluster.name)
 			return nil
 		}
 	}
@@ -778,7 +779,7 @@ func doInstallOADP(cluster kubeAccess) error {
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] issues when creating S3 secret", cluster.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] OADP cloud secret created", cluster.name))
+	addRowOfTextOutput(installText, "[%s] OADP cloud secret created", cluster.name)
 
 	// Wait for OADP Operator to be installed
 
@@ -787,12 +788,12 @@ func doInstallOADP(cluster kubeAccess) error {
 		err = cluster.controllerClient.List(context.TODO(),
 			&csvs, client.MatchingLabels{"operators.coreos.com/oadp-operator.oadp-operator": ""})
 		if err != nil {
-			addRowOfTextOutput(fmt.Sprintf("[%s] issues when listing OADP ClusterServiceVersions - Retrying...", cluster.name))
+			addRowOfTextOutput(installText, "[%s] issues when listing OADP ClusterServiceVersions - Retrying...", cluster.name)
 			time.Sleep(9 * time.Second)
 			continue
 		}
 		if len(csvs.Items) == 0 {
-			addRowOfTextOutput(fmt.Sprintf("[%s] No OADP Operator detected yet - Retrying...", cluster.name))
+			addRowOfTextOutput(installText, "[%s] No OADP Operator detected yet - Retrying...", cluster.name)
 			time.Sleep(9 * time.Second)
 			continue
 		}
@@ -807,10 +808,10 @@ func doInstallOADP(cluster kubeAccess) error {
 			break
 		}
 
-		addRowOfTextOutput(fmt.Sprintf("[%s] OADP operator is still installing", cluster.name))
+		addRowOfTextOutput(installText, "[%s] OADP operator is still installing", cluster.name)
 		time.Sleep(3 * time.Second)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] OADP operator is installed and ready now", cluster.name))
+	addRowOfTextOutput(installText, "[%s] OADP operator is installed and ready now", cluster.name)
 
 	veleroJSON := fmt.Sprintf(`
 apiVersion: konveyor.openshift.io/v1alpha1
@@ -847,28 +848,28 @@ spec:
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] issues when creating Velero CR", cluster.name)
 	}
-	addRowOfTextOutput(fmt.Sprintf("[%s] OADP Velero CR created", cluster.name))
+	addRowOfTextOutput(installText, "[%s] OADP Velero CR created", cluster.name)
 	return nil
 }
 func verifyOADPinstall(cluster kubeAccess) error {
-	addRowOfTextOutput(fmt.Sprintf("[%s] verifying OADP install", cluster.name))
+	addRowOfTextOutput(installText, "[%s] verifying OADP install", cluster.name)
 	for {
 		podlist, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{LabelSelector: "component=velero"})
 		if err != nil {
-			addRowOfTextOutput(fmt.Sprintf("[%s] issues when listing Pods in oadp-operator namespace - Retrying...", cluster.name))
+			addRowOfTextOutput(installText, "[%s] issues when listing Pods in oadp-operator namespace - Retrying...", cluster.name)
 			time.Sleep(9 * time.Second)
 			continue
 		}
 		if len(podlist.Items) == 0 {
-			addRowOfTextOutput(fmt.Sprintf("[%s] still waiting for Velero Pod to appear...", cluster.name))
+			addRowOfTextOutput(installText, "[%s] still waiting for Velero Pod to appear...", cluster.name)
 			time.Sleep(9 * time.Second)
 			continue
 		}
 		if podlist.Items[0].Status.Phase == corev1.PodRunning {
-			addRowOfTextOutput(fmt.Sprintf("[%s] Velero Pod is ready and Running", cluster.name))
+			addRowOfTextOutput(installText, "[%s] Velero Pod is ready and Running", cluster.name)
 			break
 		}
-		addRowOfTextOutput(fmt.Sprintf("[%s] Velero Pod is not yet running", cluster.name))
+		addRowOfTextOutput(installText, "[%s] Velero Pod is not yet running", cluster.name)
 		time.Sleep(3 * time.Second)
 	}
 
@@ -878,20 +879,20 @@ func verifyOADPinstall(cluster kubeAccess) error {
 			types.NamespacedName{Name: "default", Namespace: "oadp-operator"},
 			&backupstoragelocation)
 		if err != nil {
-			addRowOfTextOutput(fmt.Sprintf("[%s] issues when fetching default BackupStorageLocation - Retrying...", cluster.name))
+			addRowOfTextOutput(installText, "[%s] issues when fetching default BackupStorageLocation - Retrying...", cluster.name)
 			time.Sleep(9 * time.Second)
 			continue
 		}
 		if backupstoragelocation.Status.Phase == "Available" {
-			addRowOfTextOutput(fmt.Sprintf("[%s] BackupStorageLocation is Available", cluster.name))
+			addRowOfTextOutput(installText, "[%s] BackupStorageLocation is Available", cluster.name)
 			break
 		}
 
-		addRowOfTextOutput(fmt.Sprintf("[%s] BackupStorageLocation is not Available yet", cluster.name))
+		addRowOfTextOutput(installText, "[%s] BackupStorageLocation is not Available yet", cluster.name)
 		time.Sleep(3 * time.Second)
 	}
 
-	addRowOfTextOutput(fmt.Sprintf("[%s] OADP install is complete", cluster.name))
+	addRowOfTextOutput(installText, "[%s] OADP install is complete", cluster.name)
 
 	return nil
 }
