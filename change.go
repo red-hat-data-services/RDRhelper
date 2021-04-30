@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/rivo/tview"
 	"github.com/tidwall/sjson"
 	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -280,4 +282,22 @@ func setNamespacesToRestore(cluster kubeAccess, namespaces []string) error {
 		return errors.WithMessagef(err, "[%s] Issues when applying Restore CR", cluster.name)
 	}
 	return nil
+}
+
+func waitForRecoveryDone(cluster kubeAccess, failoverLog *tview.TextView) error {
+	if !checkForOADP(cluster) {
+		return errors.New("Cluster has no OADP installed")
+	}
+	var restoreCR velerov1.Restore
+	for {
+		err := cluster.controllerClient.Get(context.TODO(), types.NamespacedName{Name: "regional-dr-restore", Namespace: "oadp-operator"}, &restoreCR)
+		if err != nil {
+			addRowOfTextOutput(failoverLog, "  Error while fetching Retore CR: %s", err)
+		}
+		if restoreCR.Status.Phase == velerov1.RestorePhaseCompleted {
+			return nil
+		}
+		addRowOfTextOutput(failoverLog, "  The restore status is %s", restoreCR.Status.Phase)
+		time.Sleep(5 * time.Second)
+	}
 }
