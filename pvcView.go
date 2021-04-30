@@ -27,6 +27,7 @@ func setPVCViewPage(table *tview.Table, currentCluster, otherCluster kubeAccess)
 	_, err := getToolsPod(currentCluster)
 	if err != nil {
 		showAlert("The Tools Pod is not ready. Please check that the install has completed successfully.")
+		return
 	}
 	oadpAvailable = checkForOADP(currentCluster)
 
@@ -149,11 +150,12 @@ func selectAllFromNamespaceFromTable(table *tview.Table, selected bool, namespac
 }
 
 // getSelectedRows Returns the row indexes that are selected
-func getSelectedRows(table *tview.Table) []int {
+// column is the column in which the reference bool will be expected
+func getSelectedRows(table *tview.Table, column int) []int {
 	result := []int{}
 	for row := 1; row < table.GetRowCount(); row++ {
-		pv := table.GetCell(row, 1)
-		if pv.GetReference() != nil && pv.GetReference().(bool) {
+		referenceCell := table.GetCell(row, column)
+		if referenceCell.GetReference() != nil && referenceCell.GetReference().(bool) {
 			result = append(result, row)
 		}
 	}
@@ -180,7 +182,7 @@ func setPVStati(currentCluster, otherCluster kubeAccess, enable bool, table *tvi
 		statusText = "inactive"
 		statusColor = tcell.ColorRed
 	}
-	for _, row := range getSelectedRows(table) {
+	for _, row := range getSelectedRows(table, 1) {
 		statusCell := table.GetCell(row, 2)
 		if statusCell.Text == statusText {
 			// PV already in desired state
