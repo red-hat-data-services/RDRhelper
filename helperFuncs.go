@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/rivo/tview"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -52,4 +53,17 @@ func checkForOADP(cluster kubeAccess) (OADPpresent bool) {
 		OADPpresent = true
 	}
 	return
+}
+
+func stringInSlice(needle string, stack []string) (int, error) {
+	for i, hay := range stack {
+		if hay == needle {
+			return i, nil
+		}
+	}
+	return -1, errors.Errorf("Could not find %s in the slice", needle)
+}
+func stringInSliceBool(needle string, stack []string) bool {
+	_, err := stringInSlice(needle, stack)
+	return err == nil
 }
