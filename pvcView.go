@@ -15,7 +15,6 @@ import (
 
 var primaryPVCs, secondaryPVCs *tview.Table
 var pvcStatusFrame *tview.Frame
-var oadpAvailable = false
 
 func setPVCViewPage(table *tview.Table, currentCluster, otherCluster kubeAccess) {
 	// Check if the tools Pod is available
@@ -24,7 +23,6 @@ func setPVCViewPage(table *tview.Table, currentCluster, otherCluster kubeAccess)
 		showAlert("The Tools Pod is not ready. Please check that the install has completed successfully.")
 		return
 	}
-	oadpAvailable = checkForOADP(currentCluster)
 
 	table = tview.NewTable().
 		SetSelectable(true, false).
