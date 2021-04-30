@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,12 +9,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/pkg/errors"
 	"github.com/rivo/tview"
-	"github.com/tidwall/sjson"
-	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	types "k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var primaryPVCs, secondaryPVCs *tview.Table
@@ -320,50 +315,6 @@ func RemovePVFromSlice(slice []corev1.PersistentVolume, index int) []corev1.Pers
 	return append(slice[:index], slice[index+1:]...)
 }
 
-func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
-	if !oadpAvailable {
-		return
-	}
-	snapshotVolumeSetting := false
-	backupCR := velerov1.Backup{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "velero.io/v1",
-			Kind:       "Backup",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "regional-dr-backup",
-			Namespace: "oadp-operator",
-		},
-		Spec: velerov1.BackupSpec{
-			IncludedNamespaces: namespaces,
-			ExcludedResources:  []string{"imagetags.image.openshift.io"},
-			SnapshotVolumes:    &snapshotVolumeSetting,
-		},
-	}
-
-	if err := velerov1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
-		log.WithError(err).Warn("[%s] Issues when adding velero schemas", cluster.name)
-	}
-
-	backupJSON, err := json.Marshal(backupCR)
-	if err != nil {
-		log.WithError(err).Warn("[%s] Issues when converting Backup CR to JSON")
-		showAlert("The OADP Backup plan might not have been updated properly")
-	}
-
-	backupPatchedJSON, _ := sjson.Delete(string(backupJSON), "spec.ttl")
-
-	err = cluster.controllerClient.Patch(context.TODO(),
-		&backupCR,
-		client.RawPatch(types.ApplyPatchType, []byte(backupPatchedJSON)),
-		&client.PatchOptions{FieldManager: "RDRhelper"})
-
-	if err != nil {
-		log.WithError(err).Warnf("[%s] Issues when applying Backup CR", cluster.name)
-		showAlert("The OADP Backup plan might not have been updated properly")
-	}
-}
-
 func populatePVCTable(table *tview.Table, cluster kubeAccess) error {
 
 	pvcStatusFrame.AddText(
@@ -476,39 +427,4 @@ func setMirrorStatus(cluster kubeAccess, pv *corev1.PersistentVolume, enable boo
 		return errors.Wrapf(err, "could not change RBD mirror status from PV. Command: %s", command)
 	}
 	return nil
-}
-
-func showMirrorInfo(cluster kubeAccess, pv *corev1.PersistentVolume) error {
-	rbdName, poolName, err := getRBDInfoFromPV(pv)
-	if err != nil {
-		return err
-	}
-	command := fmt.Sprintf("rbd -p %s mirror image status %s", poolName, rbdName)
-	stdout, stderr, err := executeInToolbox(cluster, command)
-	// Catch error later, since exit code 22 is thrown when image is not enabled
-	if strings.Contains(stderr, "mirroring not enabled on the image") {
-		showAlert("mirroring is not enabled on this PVC")
-		return errors.New("mirroring is not enabled on this PVC")
-	}
-	if err != nil {
-		showAlert("could not get RBD mirror info from PV")
-		return errors.Wrapf(err, "could not get RBD mirror info from PV")
-	}
-	buttons := make(map[string]func())
-	buttons["Close"] = func() { pages.RemovePage("mirrorInfo") }
-	showInfo("mirrorInfo", stdout, buttons)
-	return nil
-}
-
-// getRBDInfoFromPV returns (rbdName, PoolName, nil) or ("", "", error)
-func getRBDInfoFromPV(pv *corev1.PersistentVolume) (string, string, error) {
-	if pv == nil || pv.Spec.CSI == nil || pv.Spec.CSI.VolumeAttributes == nil {
-		return "", "", errors.New("PV does not contain the required information")
-	}
-	rbdName := pv.Spec.CSI.VolumeAttributes["imageName"]
-	poolName := pv.Spec.CSI.VolumeAttributes["pool"]
-	if rbdName == "" || poolName == "" {
-		return "", "", errors.New("could not get RBD or pool name from PV")
-	}
-	return rbdName, poolName, nil
 }

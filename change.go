@@ -3,14 +3,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/tidwall/sjson"
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func executeInPod(cluster kubeAccess, pod *corev1.Pod, command string) (stdout string, stderr string, err error) {
@@ -123,5 +128,156 @@ func checkNetworkBetweenClusters(from, to kubeAccess) error {
 		log.WithField("stdout", stdout).WithField("stderr", stderr).Trace("EXECUTE!")
 	}
 
+	return nil
+}
+
+// getRBDInfoFromPV returns (rbdName, PoolName, nil) or ("", "", error)
+func getRBDInfoFromPV(pv *corev1.PersistentVolume) (string, string, error) {
+	if pv == nil || pv.Spec.CSI == nil || pv.Spec.CSI.VolumeAttributes == nil {
+		return "", "", errors.New("PV does not contain the required information")
+	}
+	rbdName := pv.Spec.CSI.VolumeAttributes["imageName"]
+	poolName := pv.Spec.CSI.VolumeAttributes["pool"]
+	if rbdName == "" || poolName == "" {
+		return "", "", errors.New("could not get RBD or pool name from PV")
+	}
+	return rbdName, poolName, nil
+}
+
+func showMirrorInfo(cluster kubeAccess, pv *corev1.PersistentVolume) error {
+	rbdName, poolName, err := getRBDInfoFromPV(pv)
+	if err != nil {
+		return err
+	}
+	command := fmt.Sprintf("rbd -p %s mirror image status %s", poolName, rbdName)
+	stdout, stderr, err := executeInToolbox(cluster, command)
+	// Catch error later, since exit code 22 is thrown when image is not enabled
+	if strings.Contains(stderr, "mirroring not enabled on the image") {
+		showAlert("mirroring is not enabled on this PVC")
+		return errors.New("mirroring is not enabled on this PVC")
+	}
+	if err != nil {
+		showAlert("could not get RBD mirror info from PV")
+		return errors.Wrapf(err, "could not get RBD mirror info from PV")
+	}
+	buttons := make(map[string]func())
+	buttons["Close"] = func() { pages.RemovePage("mirrorInfo") }
+	showInfo("mirrorInfo", stdout, buttons)
+	return nil
+}
+
+func demotePV(cluster kubeAccess, pv *corev1.PersistentVolume) error {
+	rbdName, poolName, err := getRBDInfoFromPV(pv)
+	if err != nil {
+		return err
+	}
+	// rbd -p replicapool mirror image demote csi-vol-94953897-88fc-11eb-b175-0a580a061092
+	command := fmt.Sprintf("rbd -p %s mirror image demote %s", poolName, rbdName)
+	_, stderr, err := executeInToolbox(cluster, command)
+	// Catch error later, since exit code 22 is thrown when image is not enabled
+	if strings.Contains(stderr, "mirroring not enabled on the image") {
+		showAlert("mirroring is not enabled on this PVC")
+		return errors.WithMessagef(err, "mirroring is not enabled on this PV", pv.Name)
+	}
+	return err
+}
+
+func promotePV(cluster kubeAccess, pv *corev1.PersistentVolume) error {
+	rbdName, poolName, err := getRBDInfoFromPV(pv)
+	if err != nil {
+		return err
+	}
+	command := fmt.Sprintf("rbd -p %s mirror image promote %s", poolName, rbdName)
+	_, stderr, err := executeInToolbox(cluster, command)
+	// Catch error later, since exit code 22 is thrown when image is not enabled
+	if strings.Contains(stderr, "mirroring not enabled on the image") {
+		showAlert("mirroring is not enabled on this PVC")
+		return errors.WithMessagef(err, "mirroring is not enabled on this PV", pv.Name)
+	}
+	return err
+}
+
+func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
+	if !checkForOADP(cluster) {
+		return
+	}
+	snapshotVolumeSetting := false
+	backupCR := velerov1.Backup{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "velero.io/v1",
+			Kind:       "Backup",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "regional-dr-backup",
+			Namespace: "oadp-operator",
+		},
+		Spec: velerov1.BackupSpec{
+			IncludedNamespaces: namespaces,
+			ExcludedResources:  []string{"imagetags.image.openshift.io"},
+			SnapshotVolumes:    &snapshotVolumeSetting,
+		},
+	}
+
+	if err := velerov1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
+		log.WithError(err).Warn("[%s] Issues when adding velero schemas", cluster.name)
+	}
+
+	backupJSON, err := json.Marshal(backupCR)
+	if err != nil {
+		log.WithError(err).Warn("[%s] Issues when converting Backup CR to JSON")
+		showAlert("The OADP Backup plan might not have been updated properly")
+	}
+
+	backupPatchedJSON, _ := sjson.Delete(string(backupJSON), "spec.ttl")
+
+	err = cluster.controllerClient.Patch(context.TODO(),
+		&backupCR,
+		client.RawPatch(types.ApplyPatchType, []byte(backupPatchedJSON)),
+		&client.PatchOptions{FieldManager: "RDRhelper"})
+
+	if err != nil {
+		log.WithError(err).Warnf("[%s] Issues when applying Backup CR", cluster.name)
+		showAlert("The OADP Backup plan might not have been updated properly")
+	}
+}
+
+func setNamespacesToRestore(cluster kubeAccess, namespaces []string) error {
+	if !checkForOADP(cluster) {
+		return errors.New("Cluster has no OADP installed")
+	}
+	restoreCR := velerov1.Restore{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "velero.io/v1",
+			Kind:       "Backup",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "regional-dr-restore",
+			Namespace: "oadp-operator",
+		},
+		Spec: velerov1.RestoreSpec{
+			IncludedNamespaces: namespaces,
+			BackupName:         "regional-dr-backup",
+		},
+	}
+
+	if err := velerov1.AddToScheme(cluster.controllerClient.Scheme()); err != nil {
+		return errors.WithMessagef(err, "[%s] Issues when adding velero schemas", cluster.name)
+	}
+
+	backupJSON, err := json.Marshal(restoreCR)
+	if err != nil {
+		return errors.WithMessagef(err, "[%s] Issues when converting Restore CR to JSON")
+	}
+
+	backupPatchedJSON, _ := sjson.Delete(string(backupJSON), "spec.ttl")
+
+	err = cluster.controllerClient.Patch(context.TODO(),
+		&restoreCR,
+		client.RawPatch(types.ApplyPatchType, []byte(backupPatchedJSON)),
+		&client.PatchOptions{FieldManager: "RDRhelper"})
+
+	if err != nil {
+		return errors.WithMessagef(err, "[%s] Issues when applying Restore CR", cluster.name)
+	}
 	return nil
 }
