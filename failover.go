@@ -56,7 +56,7 @@ func showFailoverNamespaceList(from, to kubeAccess) {
 		AddText("Select all namespaces with ENTER that should be replicated, then click CONTINUE\nYou can abort with the ESC key.", true, tview.AlignCenter, tcell.ColorWhite).
 		SetBorderPadding(0, 0, 0, 0)
 
-	populateTableWithResoreableNamespaces(table, to)
+	populateTableWithRestoreableNamespaces(table, to)
 
 	form := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
@@ -88,7 +88,7 @@ func gatherSelctedNamespaces(table *tview.Table) (selectedNamespaces []string) {
 	return
 }
 
-func populateTableWithResoreableNamespaces(table *tview.Table, cluster kubeAccess) {
+func populateTableWithRestoreableNamespaces(table *tview.Table, cluster kubeAccess) {
 	table.Clear()
 	namespaces, err := getListOfRestoreableNamespaces(cluster)
 	if err != nil {
