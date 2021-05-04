@@ -49,7 +49,7 @@ func executeInPod(cluster kubeAccess, pod *corev1.Pod, command string) (stdout s
 	stdout = stdoutBuf.String()
 	stderr = stderrBuf.String()
 	if err != nil {
-		log.WithError(err).WithField("stdout", stdout).WithField("stderr", stderr).Error("PROBLEM")
+		log.WithError(err).WithField("stdout", stdout).WithField("stderr", stderr).WithField("command", command).Debug("PROBLEM")
 		return stdout, stderr, errors.Wrapf(err, "Failed executing command '%s' on %s/%s", strings.Join(actualCommand, " "), pod.Namespace, pod.Name)
 	}
 
