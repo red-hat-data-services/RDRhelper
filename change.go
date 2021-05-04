@@ -250,7 +250,7 @@ func setNamespacesToRestore(cluster kubeAccess, namespaces []string) error {
 	restoreCR := velerov1.Restore{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "velero.io/v1",
-			Kind:       "Backup",
+			Kind:       "Restore",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "regional-dr-restore",
