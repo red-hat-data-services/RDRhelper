@@ -195,7 +195,7 @@ func setPVStati(currentCluster, otherCluster kubeAccess, enable bool, table *tvi
 		table.SetCell(row, 2, tview.NewTableCell(statusText).SetTextColor(statusColor))
 	}
 	ensureActivePVCsBackuped(currentCluster, table)
-	go syncPVs(currentCluster, otherCluster)
+	syncPVs(currentCluster, otherCluster)
 }
 
 func ensureActivePVCsBackuped(cluster kubeAccess, table *tview.Table) {
@@ -282,7 +282,7 @@ func syncPVs(from, to kubeAccess) error {
 		}
 	}
 	// Once we reach this point, the mirroredPVs slice only contains PVs that are mirrored on the primary, but not yet synced on the secondary cluster
-
+	log.Infof("Syncing %d PVs to the %s cluster", len(mirroredPVs), to.name)
 	failureDuringCreation := false
 	for _, pv := range mirroredPVs {
 		pv.ResourceVersion = ""
