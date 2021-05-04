@@ -62,7 +62,10 @@ var installOADP = true
 func addRowOfTextOutput(target *tview.TextView, format string, a ...interface{}) {
 	newText := fmt.Sprintf(format, a...)
 	log.Info(newText)
-	fmt.Fprintln(target, newText)
+	_, err := fmt.Fprintln(target, newText)
+	if err != nil {
+		log.WithError(err).Error("Error when writing to TextField")
+	}
 }
 
 func init() {
@@ -91,6 +94,7 @@ func showBlockPoolChoice() {
 	err = checkNetworkBetweenClusters(kubeConfigPrimary, kubeConfigSecondary)
 	if err != nil {
 		showAlert(fmt.Sprintf("Network connection between cluster could not be checked successfully!\n%s", err))
+		log.Error("Network check failed")
 		return
 	}
 	log.Info("Install requirements met")
@@ -918,6 +922,7 @@ func checkInstallRequirements(cluster kubeAccess) error {
 	if ocsVersion.Major != uint64(4) || ocsVersion.Minor != uint64(7) {
 		return errors.WithMessagef(err, "[%s] OCS version does not match 4.7 - detected version %d.%d", cluster.name, ocsVersion.Major, ocsVersion.Minor)
 	}
+	log.Infof("[%s] ODF is installed in a supported version", cluster.name)
 
 	storageClusterRes := schema.GroupVersionResource{
 		Group:    "ocs.openshift.io",
@@ -935,6 +940,7 @@ func checkInstallRequirements(cluster kubeAccess) error {
 	if status != "Ready" {
 		return errors.Errorf("StorageCluster is not ready yet - current status is %s", status)
 	}
+	log.Infof("[%s] ODF StorageCluster is Ready", cluster.name)
 
 	return nil
 }
