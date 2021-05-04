@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  finalizers:
+  - kubernetes.io/pvc-protection
+  name: {{ pvc_name }}
+  namespace: {{ pvc_namespace | default('default') }}
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ size | default (5) }}Gi
+  storageClassName: ocs-storagecluster-ceph-rbd
+  volumeMode: Filesystem
