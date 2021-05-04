@@ -117,6 +117,7 @@ func checkNetworkBetweenClusters(from, to kubeAccess) error {
 	if len(ips) == 0 {
 		return errors.Errorf("Could not find any IPs to connect to in the %s cluster", to.name)
 	}
+	log.Infof("Checking network from %s to %s - found %d IPs to check", from.name, to.name, len(ips))
 
 	for _, ip := range ips {
 		stdout, stderr, err := executeInPod(from, &networkCheckPodsSource.Items[0], fmt.Sprintf("curl --silent --fail %s:8080", ip))
@@ -129,6 +130,7 @@ func checkNetworkBetweenClusters(from, to kubeAccess) error {
 		}
 		log.WithField("stdout", stdout).WithField("stderr", stderr).Trace("EXECUTE!")
 	}
+	log.Infof("Network check from %s to %s was successful", from.name, to.name)
 
 	return nil
 }
