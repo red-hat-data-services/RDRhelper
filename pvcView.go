@@ -325,9 +325,9 @@ func populatePVCTable(table *tview.Table, cluster kubeAccess) error {
 	table.Clear()
 
 	table.
-		SetCell(0, 0, &tview.TableCell{Text: "Namespace", NotSelectable: true, Color: tcell.ColorYellow}).
-		SetCell(0, 1, &tview.TableCell{Text: "PVC", NotSelectable: true, Color: tcell.ColorYellow}).
-		SetCell(0, 2, &tview.TableCell{Text: "Replication status", NotSelectable: true, Color: tcell.ColorYellow})
+		SetCell(0, 0, &tview.TableCell{Text: "Namespace", NotSelectable: true, Color: tcell.ColorYellow, BackgroundColor: tcell.ColorBlack}).
+		SetCell(0, 1, &tview.TableCell{Text: "PVC", NotSelectable: true, Color: tcell.ColorYellow, BackgroundColor: tcell.ColorBlack}).
+		SetCell(0, 2, &tview.TableCell{Text: "Replication status", NotSelectable: true, Color: tcell.ColorYellow, BackgroundColor: tcell.ColorBlack})
 
 	pvs, err := cluster.typedClient.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -348,27 +348,31 @@ func populatePVCTable(table *tview.Table, cluster kubeAccess) error {
 			continue
 		}
 		table.SetCell(currentRow, 0, &tview.TableCell{
-			Text:      pvc.Namespace,
-			Expansion: 1,
-			Color:     tcell.ColorWhite,
-			Reference: pv,
+			Text:            pvc.Namespace,
+			Expansion:       1,
+			Color:           tcell.ColorWhite,
+			BackgroundColor: tcell.ColorBlack,
+			Reference:       pv,
 		})
 		table.SetCell(currentRow, 1, &tview.TableCell{
-			Text:      pvc.Name,
-			Expansion: 2,
-			Color:     tcell.ColorWhite,
+			Text:            pvc.Name,
+			Expansion:       2,
+			Color:           tcell.ColorWhite,
+			BackgroundColor: tcell.ColorBlack,
 		})
 		if mirroringEnabled {
 			table.SetCell(currentRow, 2, &tview.TableCell{
-				Text:      "active",
-				Expansion: 1,
-				Color:     tcell.ColorGreen,
+				Text:            "active",
+				Expansion:       1,
+				Color:           tcell.ColorGreen,
+				BackgroundColor: tcell.ColorBlack,
 			})
 		} else {
 			table.SetCell(currentRow, 2, &tview.TableCell{
-				Text:      "inactive",
-				Expansion: 1,
-				Color:     tcell.ColorRed,
+				Text:            "inactive",
+				Expansion:       1,
+				Color:           tcell.ColorRed,
+				BackgroundColor: tcell.ColorBlack,
 			})
 		}
 		currentRow += 1
