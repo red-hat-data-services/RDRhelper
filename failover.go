@@ -60,7 +60,7 @@ func showFailoverNamespaceList(from, to kubeAccess) {
 				showAlert("You need to select at least one namespace before continuing")
 				return event
 			}
-			workOnFailoverWithNamespaces(from, to, namespaces)
+			showFailoverWithNamespaces(from, to, namespaces)
 		}
 		return event
 	})
@@ -113,7 +113,7 @@ func populateTableWithRestoreableNamespaces(table *tview.Table, cluster kubeAcce
 	}
 	log.Debugf("Found %d restorable namespaces", len(namespaces))
 	// table.SetCell(0, 0, &tview.TableCell{Text: "Namespace", NotSelectable: true, BackgroundColor: tcell.ColorBlack})
-	row := 0
+	row := 1
 	for ns := range namespaces {
 		table.SetCell(row, 0, &tview.TableCell{
 			Text:            ns,
@@ -150,18 +150,18 @@ func getListOfRestoreableNamespaces(cluster kubeAccess) (restoreableNamespace ma
 	return
 }
 
-func showFailoverWithNamespaces() (failoverLog *tview.TextView) {
-	failoverLog = tview.NewTextView().
+func showFailoverWithNamespaces(from, to kubeAccess, namespaces []string) {
+	failoverLog := tview.NewTextView().
 		SetChangedFunc(func() {
 			app.Draw()
 		})
 	pages.AddPage("failoverAction", failoverLog, true, true)
 	pages.SwitchToPage("failoverAction")
-	return
+
+	go workOnFailoverWithNamespaces(from, to, namespaces, failoverLog)
 }
 
-func workOnFailoverWithNamespaces(from, to kubeAccess, namespaces []string) {
-	failoverLog := showFailoverWithNamespaces()
+func workOnFailoverWithNamespaces(from, to kubeAccess, namespaces []string, failoverLog *tview.TextView) {
 	addRowOfTextOutput(failoverLog, "Trying to demote PVs in the %s cluster now...", from.name)
 	addRowOfTextOutput(failoverLog, "This is OK to fail")
 	err := changePVStatiInNamespaces(from, namespaces, "demote", failoverLog)
@@ -222,6 +222,10 @@ func changePVStatiInNamespaces(cluster kubeAccess, namespaces []string, action s
 		if !stringInSliceBool(pv.Spec.ClaimRef.Namespace, namespaces) {
 			continue
 		}
+		if mirrored, err := checkMirrorStatus(cluster, &pv); !mirrored || err != nil {
+			// Could not determine mirror status or is not mirrored, skip
+			continue
+		}
 
 		switch action {
 		case "demote":
@@ -231,6 +235,7 @@ func changePVStatiInNamespaces(cluster kubeAccess, namespaces []string, action s
 		}
 		if err != nil {
 			addRowOfTextOutput(failoverLog, "  ❌ failed to change mirror status for PV %s", pv.Name)
+			continue
 		}
 		addRowOfTextOutput(failoverLog, "  ✔️ mirror status changed for PV %s", pv.Name)
 	}
