@@ -30,9 +30,10 @@ func askSeriousForFailover() {
 }
 
 func showFailoverNamespaceList(from, to kubeAccess) {
+	log.Debugf("Failing over from %s to %s", from.name, to.name)
 	table := tview.NewTable().
 		SetSelectable(true, false).
-		SetSeparator(tview.Borders.Vertical).
+		SetSeparator(tview.Borders.Horizontal).
 		SetFixed(1, 1).
 		SetDoneFunc(func(key tcell.Key) {
 			if key == tcell.KeyEscape {
@@ -51,24 +52,36 @@ func showFailoverNamespaceList(from, to kubeAccess) {
 			namespaceCell.SetReference(false)
 		}
 	})
+	table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Rune() {
+		case 'c':
+			namespaces := gatherSelctedNamespaces(table)
+			if len(namespaces) < 1 {
+				showAlert("You need to select at least one namespace before continuing")
+				return event
+			}
+			workOnFailoverWithNamespaces(from, to, namespaces)
+		}
+		return event
+	})
 
 	tableFrame := tview.NewFrame(table).
-		AddText("Select all namespaces with ENTER that should be replicated, then click CONTINUE\nYou can abort with the ESC key.", true, tview.AlignCenter, tcell.ColorWhite).
-		SetBorderPadding(0, 0, 0, 0)
-
-	populateTableWithRestoreableNamespaces(table, to)
-
-	form := tview.NewForm().
-		SetButtonsAlign(tview.AlignCenter).
-		AddButton("CONTINUE", func() {
-			namespaces := gatherSelctedNamespaces(table)
-			workOnFailoverWithNamespaces(from, to, namespaces)
-		})
-
-	container := tview.NewFlex().SetDirection(tview.FlexRow)
-	container.AddItem(tableFrame, 0, 2, true).
-		AddItem(form, 1, 1, false).
+		AddText("Select all namespaces with ENTER that should be replicated, then press the c key to continue. You can abort with the ESC key.", true, tview.AlignCenter, tcell.ColorWhite)
+	tableFrame.
+		SetBorderPadding(0, 0, 0, 0).
 		SetBorder(true)
+
+	container := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(
+			tview.NewTextView().SetText("Select all namespaces with ENTER that should be replicated, then press the c key to continue.\nYou can abort with the ESC key."),
+			3, 1, false).
+		AddItem(table, 0, 2, true)
+	container.SetBorder(true)
+
+	log.Debug("[Failover] Starting populating table")
+	populateTableWithRestoreableNamespaces(table, to)
+	log.Debug("[Failover] Done populating table")
 
 	pages.AddAndSwitchToPage("failoverView",
 		container,
@@ -76,8 +89,10 @@ func showFailoverNamespaceList(from, to kubeAccess) {
 }
 
 func gatherSelctedNamespaces(table *tview.Table) (selectedNamespaces []string) {
+	log.Debug("gatherSelctedNamespaces")
 	selectedNamespaceMap := make(map[string]interface{})
 	selectedRows := getSelectedRows(table, 0)
+	log.Debugf("Selected rows: %v", selectedRows)
 	for _, row := range selectedRows {
 		namespace := table.GetCell(row, 0).Text
 		selectedNamespaceMap[namespace] = nil
@@ -85,6 +100,7 @@ func gatherSelctedNamespaces(table *tview.Table) (selectedNamespaces []string) {
 	for namespace := range selectedNamespaceMap {
 		selectedNamespaces = append(selectedNamespaces, namespace)
 	}
+	log.Debugf("gatherSelctedNamespaces done with %d items", len(selectedNamespaces))
 	return
 }
 
@@ -95,9 +111,16 @@ func populateTableWithRestoreableNamespaces(table *tview.Table, cluster kubeAcce
 		log.WithError(err).Warnf("Issues when collecting namespaces from the %s cluster for failover")
 		return
 	}
+	log.Debugf("Found %d restorable namespaces", len(namespaces))
+	// table.SetCell(0, 0, &tview.TableCell{Text: "Namespace", NotSelectable: true, BackgroundColor: tcell.ColorBlack})
 	row := 0
 	for ns := range namespaces {
-		table.SetCellSimple(row, 0, ns)
+		table.SetCell(row, 0, &tview.TableCell{
+			Text:            ns,
+			Expansion:       1,
+			BackgroundColor: tcell.ColorBlack,
+			Color:           tcell.ColorWhite,
+		})
 		row += 1
 	}
 }
@@ -109,12 +132,10 @@ func getListOfRestoreableNamespaces(cluster kubeAccess) (restoreableNamespace ma
 		log.WithError(err).Warn("Issues when listing pods for PVC list")
 		return
 	}
+	log.Debugf("Analyzing %d PVs", len(targetPVs.Items))
 	// Filter for PVs in Released state, these are most likely our mirrored PVs
 	// field-selector does not support status.phase for PVs :/
 	for _, pv := range targetPVs.Items {
-		if pv.Status.Phase != "Released" {
-			continue
-		}
 		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != "openshift-storage.rbd.csi.ceph.com" {
 			// not a CSI backed PV or not a Ceph RBD PV
 			continue
@@ -129,13 +150,18 @@ func getListOfRestoreableNamespaces(cluster kubeAccess) (restoreableNamespace ma
 	return
 }
 
-func workOnFailoverWithNamespaces(from, to kubeAccess, namespaces []string) {
-	failoverLog := tview.NewTextView().
+func showFailoverWithNamespaces() (failoverLog *tview.TextView) {
+	failoverLog = tview.NewTextView().
 		SetChangedFunc(func() {
 			app.Draw()
 		})
-	pages.AddAndSwitchToPage("failoverAction", failoverLog, true)
+	pages.AddPage("failoverAction", failoverLog, true, true)
+	pages.SwitchToPage("failoverAction")
+	return
+}
 
+func workOnFailoverWithNamespaces(from, to kubeAccess, namespaces []string) {
+	failoverLog := showFailoverWithNamespaces()
 	addRowOfTextOutput(failoverLog, "Trying to demote PVs in the %s cluster now...", from.name)
 	addRowOfTextOutput(failoverLog, "This is OK to fail")
 	err := changePVStatiInNamespaces(from, namespaces, "demote", failoverLog)
