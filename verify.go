@@ -21,43 +21,47 @@ var verifyText = tview.NewTextView().
 		app.Draw()
 	})
 
-
-func addRowOfVerifyTextOutput(newText string) {
-	fmt.Fprintln(verifyText, newText)
+func addRowOfVerifyTextOutput(target *tview.TextView, format string, a ...interface{}) {
+	newText := fmt.Sprintf(format, a...)
+//	log.Info(newText)
+	_, err := fmt.Fprintln(target, newText)
+	if err != nil {
+		log.WithError(err).Error("Error when writing to TextField")
+	}
 }
 
 func init() {
 		verifyText.
 			SetDoneFunc(func(key tcell.Key) {
 				verifyText.Clear()
-				pages.RemovePage("install")
+				pages.RemovePage("verify")
 				pages.SwitchToPage("main")
 			    //log.Out = logFile
 			})
 	}
 
-func showVerifyPage(kubeConfigPrimary kubeAccess, kubeConfigSecondary kubeAccess) {
+func showVerifyPage(kubeConfigPrimary, kubeConfigSecondary kubeAccess) {
 	pages.AddAndSwitchToPage("verify", verifyText, true)
 	log.Out = verifyText
 
 	clusters := []kubeAccess{ kubeConfigPrimary, kubeConfigSecondary }
-	for cluster := range clusters {
-		addRowOfVerifyTextOutput("")
-		addRowOfVerifyTextOutput(fmt.Sprintf("%s cluster", clusters[cluster].name))
+	for _, cluster := range clusters {
+		addRowOfVerifyTextOutput(verifyText,"")
+		addRowOfVerifyTextOutput(verifyText,"%s cluster", cluster.name)
 
-		err := verifyRBDMirrorPods(clusters[cluster])
+		err := verifyRBDMirrorPods(cluster)
     	if err != nil {
-    		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
+    		log.WithError(err).Warn("Issues when verifying RBD Mirror Pods")
     	}
 
-    	err = verifyCBPmirror(clusters[cluster])
+    	err = verifyCBPmirror(cluster)
     	if err != nil {
-    		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
+    		log.WithError(err).Warn("Issues when verifying Ceph Block Pool Mirror Pods")
     	}
 
-    	err = verifyOADPOperator(clusters[cluster])
+    	err = verifyOADPOperator(cluster)
     	if err != nil {
-    		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
+    		log.WithError(err).Warn("Issues when verifying OADP Operator")
     	}
 	}
 
@@ -69,7 +73,7 @@ func verifyOcsOperator(cluster kubeAccess) (string) {
 	if err != nil || len(ocspod.Items) == 0 {
 		errors.Wrapf(err, "error when looking for ocs operator pod in %s namespace", ocsNamespace)
 		log.WithError(err).Warn("OCS operator pods not found")
-		addRowOfVerifyTextOutput("OCS NOT installed?")
+		addRowOfVerifyTextOutput(verifyText,"OCS NOT installed?")
 		return "FAILED no ocs operator found"
 	}
 
@@ -86,10 +90,10 @@ func verifyOADPOperator(cluster kubeAccess) (error) {
 	oadppod, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{})
 	// Does len(oadppod.Items need to be 3? (velero, aws default and operator?)
 	if err != nil || len(oadppod.Items) == 0 {
-		addRowOfVerifyTextOutput("OADP does NOT appear to be installed and running. Please consider installing OADP.")
+		addRowOfVerifyTextOutput(verifyText,"OADP does NOT appear to be installed and running. Please consider installing OADP.")
 		return err
 	}
-	addRowOfVerifyTextOutput("OADP Operator ... OK")
+	addRowOfVerifyTextOutput(verifyText,"OADP Operator ... OK")
 	return nil
 }
 
@@ -99,7 +103,7 @@ func verifyRBDMirrorPods(cluster kubeAccess) (error) {
 	rbdmirrorpods, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).List(context.TODO(), metav1.ListOptions{LabelSelector: rbdlabelselector})
 	if err != nil || len(rbdmirrorpods.Items) == 0 {
 		errors.Wrapf(err, "error when looking for rbd mirror pods in %s namespace", ocsNamespace)
-		addRowOfVerifyTextOutput(fmt.Sprintf("RBDMirrorPods NOT OK. No pods in %s namespace with label %s found!", ocsNamespace, rbdlabelselector ))
+		addRowOfVerifyTextOutput(verifyText,"RBDMirrorPods NOT OK. No pods in %s namespace with label %s found!", ocsNamespace, rbdlabelselector)
 		return err
 	}
 
@@ -108,9 +112,9 @@ func verifyRBDMirrorPods(cluster kubeAccess) (error) {
 	}
 
 	for rbd := range rbdmirrorpods.Items {
-		addRowOfVerifyTextOutput(fmt.Sprintf("RBD Mirror Deployment %d of 2",rbd+1))
+		addRowOfVerifyTextOutput(verifyText,"RBD Mirror Deployment %d of 2",rbd+1)
 		for rbdpod := range rbdmirrorpods.Items[rbd].Spec.Containers {
-			addRowOfVerifyTextOutput(fmt.Sprintf("RBD Mirror Pod %s ... OK",rbdmirrorpods.Items[rbd].Spec.Containers[rbdpod].Name))
+			addRowOfVerifyTextOutput(verifyText,"RBD Mirror Pod %s ... OK",rbdmirrorpods.Items[rbd].Spec.Containers[rbdpod].Name)
 		}
     }
     return nil
@@ -132,10 +136,10 @@ func verifyCBPmirror(cluster kubeAccess) (error) {
 	for k, v := range currentBlockPool.Status.MirroringStatus.Summary["summary"].(map[string]interface{}) {
 		if k != "states" {
 			if v != "OK" {
-				addRowOfVerifyTextOutput(fmt.Sprintf(" CBP pod %s NOT OK. status: %s", k, v))
+				addRowOfVerifyTextOutput(verifyText," CBP pod %s NOT OK. status: %s", k, v)
 				return errors.WithMessagef(err, "CBP mirror status error %s in %s cluster", v, cluster.name)
 			}
-			addRowOfVerifyTextOutput(fmt.Sprintf("CephBlockPool pod %s ... %s", k, v))
+			addRowOfVerifyTextOutput(verifyText,"CephBlockPool pod %s ... %s", k, v)
 		}
 	}
 	return nil
