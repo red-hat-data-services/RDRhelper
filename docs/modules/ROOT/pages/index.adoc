@@ -1,0 +1,7 @@
+= ODF Regional DR
+
+Welcome to the inofficial documentation for OpenShift Regional DR with OpenShift Data Foundation!
+
+Note: This is not Red Hat official documentation for ODF. For the official documentation, please see https://access.redhat.com/documentation/en-us/red_hat_openshift_container_storage
+
+Discover our documents in the left navigation menu

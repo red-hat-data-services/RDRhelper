@@ -1,0 +1,8 @@
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+# These people will be requested for
+# review when someone opens a pull request.
+*       @mulbc @mid998
+
+# Annette is responsible for the manual doc
+docs/modules/manual @netzzer

@@ -1,0 +1,74 @@
+= RDRhelper install steps
+
+:toc:
+:toclevels: 4
+:icons: font
+:source-language: shell
+:numbered:
+// Activate experimental attribute for Keyboard Shortcut keys
+:experimental:
+:source-highlighter: pygments
+:hide-uri-scheme:
+
+:RDRreleaseLink: https://gitlab.consulting.redhat.com/cblum/RDRhelper/-/releases[RDRhelper Releases^]
+
+== Overview
+
+The Regional DR helper tool (also known as RDRhelper) can be used to simplify the OADP-based Regional DR available to OpenShift clusters with OpenShift Data Foundation (ODF) starting with 4.7.
+
+NOTE: Regional DR is not currently a supported feature of ODF and thus there is also no support for the RDRhelper
+
+The RDRhelper tool is available for the Linux, MacOS and Windows operating systems for Intel and ARM CPUs.
+
+In the following you will find the specific instruction steps for these operating systems
+
+=== Install on Linux
+
+Releases of the RDRhelper are available at {RDRreleaseLink}. 
+
+For your operating system chose the file with `Linux` in its name. If you have an Intel or AMD CPU download the x86_64 file. If you have an ARM CPU, download the arm64 file.
+
+After downloading the file, make it executable like this:
+
+[source,role="execute"]
+----
+chmod +x RDRhelper*
+----
+
+Then you can run the tool by executing it directly:
+
+[source,role="execute"]
+----
+./RDRhelper*
+----
+=== Install on MacOS
+
+Releases of the RDRhelper are available at {RDRreleaseLink}. 
+
+For your operating system chose the file with `MacOS` in its name. If you have an Intel or AMD CPU download the x86_64 file. If you have an ARM CPU, download the arm64 file.
+
+After downloading the file, make it executable like this:
+
+[source,role="execute"]
+----
+chmod +x RDRhelper*
+----
+
+Then you can run the tool by executing it directly:
+
+[source,role="execute"]
+----
+./RDRhelper*
+----
+=== Install on Windows
+
+Releases of the RDRhelper are available at {RDRreleaseLink}. 
+
+For your operating system chose the file with `Windows` in its name. If you have an Intel or AMD CPU download the x86_64 file. If you have an ARM CPU, download the arm64 file.
+
+After the download you can start the helper tool directly by executing the .exe in a terminal or double clicking on it from your explorer:
+
+[source,role="execute"]
+----
+./RDRhelper*.exe
+----

@@ -1,0 +1,2 @@
+.Manual steps
+* xref:ocs4-multisite-replication.adoc[Manual RegionalDR]

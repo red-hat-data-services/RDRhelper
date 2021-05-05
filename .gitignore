@@ -1,4 +1,6 @@
 dist/
+.cache/
+build/
 RDRhelper.log
 *.cast
 *.log
