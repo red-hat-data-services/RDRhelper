@@ -1,3 +1,4 @@
 .RDRhelper
+* xref:requirements.adoc[Requirements for the RDRhelper]
 * xref:install.adoc[Install RDRhelper]
 * xref:usage.adoc[Use RDRhelper]
