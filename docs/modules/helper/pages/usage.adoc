@@ -1,0 +1,137 @@
+= RDRhelper usage
+
+:toc:
+:toclevels: 4
+:icons: font
+:source-language: shell
+:numbered:
+// Activate experimental attribute for Keyboard Shortcut keys
+:experimental:
+:source-highlighter: pygments
+:hide-uri-scheme:
+
+// ifndef::site-gen-antora[]
+:imagesdir: ../images
+// endif::[]
+
+The Regional-DR helper tool (also known as RDRhelper) can help you set up and manage Regional-DR replication between two OpenShift clusters based on OpenShift Data Foundation. Once Regional-DR is set up, RDRhelper can help you in doing the Failover of your application from one cluster to the other and failback.
+
+== Setting up cluster connectivity
+
+When there is no RDRhelper configuration on your computer yet or there is no connectivity to the clusters, the main menu will display only two items:
+
+* Configure Kubeconfigs
+* Quit
+
+In this case, the RDRhelper config needs to be updated to include paths to the Kubeconfigs of the primary and secondary cluster. To do so, chose the `Configure Kubeconfigs` option in the main menu by using the btn:[arrow-up] and btn:[arrow-down] buttons on your keyboard and enter this option by pressing kbd:[ENTER].
+
+You should end up in a window that looks like this:
+
+image::usage/configureKubeconfigs.jpg[Configure Kubeconfigs page]
+
+Fill out the path to the primary and secondary Kubeconfig. You can switch between fields with your kbd:[TAB] key. +
+Once the field is populated with a valid location of a Kubeconfig, you will see the clusters name appear in the footer section.
+
+After filling out both paths, you should see something similar to this:
+
+image::usage/configureKubeconfigsPopulated.jpg[Configure Kubeconfigs page with data]
+
+Once everything is set, click the btn:[Go back] button by switching to it with kbd:[TAB] and pressing kbd:[ENTER] +
+Alternatively you can exit by pressing the kbd:[ESC] key on your keyboard
+
+== Setting up the clusters for Regional DR
+
+The RDRhelper tool is able to set up a cluster for Regional-DR. For this to work, there are some requirements, which are explained in the xref:requirements.adoc[Requirements document]. +
+Make sure at least the following requirements are met:
+
+* OpenShift Container Platform 4.7 or newer
+* Openshift Data Foundation 4.7 or newer
+* Networking setup to connect the Pod networks between the two cluster networks
+* A S3 bucket accessible by both clusters (If using OADP application backup)
+
+If you think those requirements are met, select the `Install` option in the main menu. If that option is not available, follow the <<Setting up cluster connectivity>> section to configure the Kubeconfigs for the RDRhelper.
+
+After selecting this option, the RDRhelper will try to verify that all requirements are met.
+
+After this has been successfully checked, it proceeds to the first page, where you have two options:
+
+1. Install OADP +
+OADP is an optional part of the RDRhelper but we encourage people to use it if they have no other option to back up their application deployment. If OADP is not installed, RDRhelper will *only* copy over the PVs and their data to the other cluster.
+2. Install using the existing or a dedicated CephBlockPool +
+During the regular ODF install, the ODF operator already creates a default CephBlockPool (CBP). If you want to keep the default CBP untouched and create a new pool, select the `Use Dedicated Block Pool` option.
+
+If you have chosen to install OADP, you are forwarded to the S3 configuration page. 
+
+NOTE: As of now, only AWS S3 is supported, but we are planning to add non-AWS S3 support soon.
+
+.S3 fields and their meaning
+|===
+|Field name | Meaning
+
+|S3 access key ID | You get this information from AWS IAM
+|S3 access key secret | You get this information from AWS IAM
+|S3 region | The S3 region of the target bucket
+|S3 bucket name | the name of the S3 bucket
+|object name prefix | The prefix used when placing objects in the bucket. This will appears as a folder in most S3 clients
+|===
+
+Once you have filled out all the information, click on btn:[Proceed] to start the installation.
+
+During the installation you will see a log of what is happening. The same output is also recorded in the log. +
+If there are any errors during the installation you will be notified either in the log or with an upcoming message.
+
+NOTE: All operations during the installation are safe to rerun. If there are any issues during the installation or if you want to enable the default AND dedicated pool for mirroring you can rerun the installation at any time.
+
+Once the installation is finished, you can return to the main menu with either the kbd:[ENTER] or kbd:[ESC] keys.
+
+== Enabling Regional-DR mirroring on PVs
+
+Once the Regional-DR installation is done, you will see the more items in the main menu. Two of them are `Configure Primary` and `Configure Secondary`. With these options you can enable and disable PVs for mirroring in either the primary or secondary cluster. +
+Usually you would not use `Configure Secondary` unless you have done a Failover or want to look at the target of the mirroring on the secondary cluster for verification.
+
+Once either option is selected, RDRhelper will populate the table with PV information and you will see the message `Fetching list of PVCs and their mirroring status` above the table. +
+After the RDRhelper has collected all the information the message `Fetching list of PVCs completed` is briefly displayed. +
+You can always refresh the list of PVs and their status by pressing the kbd:[s] key on your keyboard.
+
+Once the table is populated, your view should look similar to this:
+
+image::usage/pvcView.jpg[Populated PVCView from the primary cluster]
+
+The table displays multiple information:
+
+* The left column shows the namespace of the PVC
+* The middle column shows the name of the PVC
+* The right column shows the replication status. If this is active, the PV belonging to this PVC is mirrored between the clusters.
+
+=== Selecting PVCs
+
+You can use your btn:[arrow-up] and btn:[arrow-down] buttons on your keyboard to move your cursor between PVCs in the table. 
+
+To select PVCs for replication status change, you have multuple options:
+
+* To select PVCs one at a time, you can move to the PVC and press the kbd:[ENTER] key
+* To select all PVCs in a namespace you move to any PVC in that namespace and press the kbd:[n] key
+* To select all PVCs in all namespaces you press the kbd:[a] key
+
+You can unselect all PVCs with the kbd:[x] key or unselect specific PVCs by moving to the PVC and using kbd:[ENTER].
+
+=== Changing PVC replication status
+
+Once your selection is correct, you can use the kbd:[r] key to activate replcation for these PVCs or use the kbd:[u] key to deactivate replication. If some selected PVCs are already in the desired status, they will be skipped automatically.
+
+When activating replication for a PV, several things happen:
+
+1. Snapshots are activated for the underlying Ceph RBD image
+2. The RBD-mirror daemon will start to mirror the image from the primary to the secondary cluster
+3. The PV object is copied from the primary to the secondary cluster +
+This will make it appear in the `Configure secondary` view
+4. If OADP is installed, the namespace of the PVC will be added to the metadata backup
+
+Due to this, changing the status of multiple PVCs at the same time might take a while.
+
+=== Viewing PVC information
+
+Each of the listed PVCs has an underlying Ceph RBD image. When moving the cursor to a PVC and pressing the kbd:[i] key, Ceph's internal information about this image will be visible. +
+The output will also include information about the replication status of this image.
+
+image::usage/RBDinfoExample.jpg[Example of an RBD info view]
