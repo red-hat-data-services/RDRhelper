@@ -267,6 +267,7 @@ func doInstall() error {
 
 		storageclassPolicy := corev1.PersistentVolumeReclaimRetain
 		storageclassBindingMode := v1.VolumeBindingImmediate
+		storageclassVolumeExpansion := true
 
 		newStorageClass := v1.StorageClass{
 			TypeMeta: metav1.TypeMeta{
@@ -289,9 +290,10 @@ func doInstall() error {
 				"imageFormat":   "2",
 				"pool":          "replicapool",
 			},
-			Provisioner:       "openshift-storage.rbd.csi.ceph.com",
-			ReclaimPolicy:     &storageclassPolicy,
-			VolumeBindingMode: &storageclassBindingMode,
+			Provisioner:          "openshift-storage.rbd.csi.ceph.com",
+			ReclaimPolicy:        &storageclassPolicy,
+			VolumeBindingMode:    &storageclassBindingMode,
+			AllowVolumeExpansion: &storageclassVolumeExpansion,
 		}
 
 		if err = createStorageClass(kubeConfigPrimary, &newStorageClass); err != nil {
