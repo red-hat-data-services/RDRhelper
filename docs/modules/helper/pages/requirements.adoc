@@ -10,10 +10,101 @@
 :source-highlighter: pygments
 :hide-uri-scheme:
 
-:RDRreleaseLink: https://gitlab.consulting.redhat.com/cblum/RDRhelper/-/releases[RDRhelper Releases^]
+The Regional-DR helper tool (also known as RDRhelper) has a couple of requirements to successfully operate.
 
-== ODF
+In short these are:
 
+* OpenShift Container Platform 4.7 or newer
+* Openshift Data Foundation 4.7 or newer
+* Networking setup to connect the Pod networks between the two cluster networks
+* A S3 bucket accessible by both clusters
+** We recommend using a S3 service in a location outside of the two clusters for this
 
+Naturally, since this is Regional DR you have two OpenShift Containter Platform (OCP) clusters. One will act as the primary location, which hosts the application under normal circumstances. The other cluster will act as the secondary location, which receives the replication data and is the target of the failover.
+
+In addition to this, a S3 bucket is needed to synchronize the metadata of the applications. This synchronization is done using https://access.redhat.com/articles/5456281[OADP] and fully automated in the RDRhelper tool. +
+The actual data inside of the PVs are transferred directly using Ceph's asynchroneous RBD replication.
+
+In the following we will talk more about the requirements.
+
+== OpenShift Container Platform
+
+One of the requirements for the RDRhelper tool is to have a OpenShift Container Platform(OCP) cluster with version 4.7 or newer.
+
+=== Verify version from the CLI
+
+You can verify this on the commandline like this:
+
+[source,role="execure"]
+----
+oc adm upgrade
+----
+
+.Example output:
+----
+Cluster version is 4.7.8   <1>
+
+No updates available. You may force an upgrade to a specific release image, but doing so may not be supported and result in downtime or data loss.
+----
+
+<1> This is where you see your cluster version
+
+=== Verify version from the Web UI
+
+To check this from the Web UI by logging in as a cluster admin, then going to `Administration` -> `Cluster Settings` on the left navigation bar.
+Afterwards you should see a similar picture as this:
+
+image::requirements/ocp-cluster-version.jpg[OCP cluster version in the Web UI]
+
+== OpenShift Data Foundation
+
+One of the requirements for the RDRhelper tool is to have a OpenShift Data Foundation(ODF) cluster with version 4.7 or newer.
+
+=== Verify version from the CLI
+
+[source,role="execure"]
+----
+oc get csv -n openshift-storage
+----
+
+.Example output:
+----
+NAME                         DISPLAY                       VERSION        REPLACES   PHASE
+ocs-operator.v4.7.0-377.ci   OpenShift Container Storage   4.7.0-377.ci              Succeeded
+----
+
+=== Verify version from the Web UI
+To check this from the Web UI by logging in as a cluster admin, then going to `Operators` -> `Installed Operators` on the left navigation bar. +
+Make sure that the `openshift-storage` project is selected
+Afterwards you should see a similar picture as this:
+
+image::requirements/odf-version.jpg[ODF version in the Web UI]
 
 == Cluster networking
+
+Both clusters that should be used for regional-DR are supposed to be set up so that their Pod networks are connected to each other.
+
+There are multiple ways to achieve that. One popular method to do this is to use https://submariner.io/[Submariner] for this. +
+If you intend to use Submariner, you can check out this link which will get you directly to https://submariner.io/getting-started/quickstart/openshift/[the OpenShift Quickstarts]
+
+=== Verification
+
+Once you have Submariner set up, you can check on the status of the connection with
+
+[source,role="execure"]
+----
+subctl show connections
+----
+
+.Example output:
+----
+Showing information for cluster "source":
+GATEWAY                         CLUSTER                 REMOTE IP       CABLE DRIVER        SUBNETS                                 STATUS          
+master0                         target                  192.168.180.10  libreswan           10.16.0.0/16, 10.6.0.0/16               connected 
+----
+
+If the `STATUS` is connected, submariner is set up correctly.
+
+Do this test on both clusters and check their status.
+
+If you have troubles, check the https://submariner.io/operations/troubleshooting/[Troubleshooting guide]
