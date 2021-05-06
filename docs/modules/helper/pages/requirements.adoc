@@ -9,6 +9,7 @@
 :experimental:
 :source-highlighter: pygments
 :hide-uri-scheme:
+:imagesdir: ../images
 
 The Regional-DR helper tool (also known as RDRhelper) has a couple of requirements to successfully operate.
 
