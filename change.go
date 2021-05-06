@@ -148,12 +148,12 @@ func getRBDInfoFromPV(pv *corev1.PersistentVolume) (string, string, error) {
 	return rbdName, poolName, nil
 }
 
-func showMirrorInfo(cluster kubeAccess, pv *corev1.PersistentVolume) error {
+func showRBDInfo(cluster kubeAccess, pv *corev1.PersistentVolume) error {
 	rbdName, poolName, err := getRBDInfoFromPV(pv)
 	if err != nil {
 		return err
 	}
-	command := fmt.Sprintf("rbd -p %s mirror image status %s", poolName, rbdName)
+	command := fmt.Sprintf("rbd -p %s info %s", poolName, rbdName)
 	stdout, stderr, err := executeInToolbox(cluster, command)
 	// Catch error later, since exit code 22 is thrown when image is not enabled
 	if strings.Contains(stderr, "mirroring not enabled on the image") {

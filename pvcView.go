@@ -67,14 +67,9 @@ func setPVCViewPage(table *tview.Table, currentCluster, otherCluster kubeAccess)
 			go populatePVCTable(table, currentCluster)
 		case 'i':
 			row, _ := table.GetSelection()
-			pvcStatus := table.GetCell(row, 2).Text
-			if pvcStatus == "inactive" {
-				showAlert("mirroring is not enabled on this PVC")
-				break
-			}
 			pvReference := table.GetCell(row, 0).GetReference()
 			pv := pvReference.(corev1.PersistentVolume)
-			showMirrorInfo(currentCluster, &pv)
+			showRBDInfo(currentCluster, &pv)
 		}
 		return event
 	})
@@ -83,7 +78,7 @@ func setPVCViewPage(table *tview.Table, currentCluster, otherCluster kubeAccess)
 Keyboard keys:
 General actions
 	(s) Refresh PVC table
-	(i) Show PVCs mirror info
+	(i) Show PVCs RBD info
 Selection
 	(a) Select all
 	(n) Select all in namespace
