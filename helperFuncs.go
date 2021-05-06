@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/pkg/errors"
 	"github.com/rivo/tview"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,12 @@ func showInfo(pageTitle string, information string, buttons map[string]func()) {
 	for button, selected := range buttons {
 		form.AddButton(button, selected)
 	}
+	form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape {
+			pages.RemovePage(pageTitle)
+		}
+		return event
+	})
 	pages.AddAndSwitchToPage(pageTitle,
 		layout,
 		true,
