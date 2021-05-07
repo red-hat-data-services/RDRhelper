@@ -135,3 +135,54 @@ Each of the listed PVCs has an underlying Ceph RBD image. When moving the cursor
 The output will also include information about the replication status of this image.
 
 image::usage/RBDinfoExample.jpg[Example of an RBD info view]
+
+== Failing over and back
+
+The main motivation to use the RDRhelper is to be able to savely fail over to a secondary cluster and back in case of a disaster (or test of such). +
+Therefore we invested a lot of thinking into how to make this as useful and easy as possible.
+
+What we came up with is a workflow that will make you able to fail over on a namespace level. If OADP is detected on the failover target, we attempt an OADP restore to boot your applications up.
+
+.Modifying your load balancer is not part of the RDRhelper
+WARNING: You will be responsible to modify your global routing to point to the other cluster once failover or failback has been executed.
+
+.Some applications are not compatible with the OADP restore
+WARNING: We are aware that *some applications are not compatible with the OADP restore* and as such will not come up clean after a failover or failback. It is your responsibility to verify that your application is actually running after doing a failover or failback.
+
+When selecting the failover option in the main menu, you are asked if you are serious about doing a failover. This is to limit the chance of starting a failover by accident and thus invoking downtime on applications in your production cluster.
+You have the choice between these options:
+
+* btn:[failOVER] +
+Failover from the primary cluster to the secondary cluster.
+* btn:[failBACK] +
+Failover from the secondary cluster to the primary cluster. You would do this after you did a failover and want to revert to the regular application home.
+
+After selecting any of these buttons, you are forwarded to the next page that will list all recoverable namespaces.
+
+=== Chosing the namespaces to recover
+
+Once you have verified that you want to do a failover, the first page that you see will look similar to this:
+
+image::usage/failoverChoseNamespace.png[Chose namespaces for Failover]
+
+In the middle part of the screen you will see a list of namespaces that contain migratable PVCs. +
+A namespace in this list will have one or multiple PVCs using the CSI `openshift-storage.rbd.csi.ceph.com` driver.
+
+You can move the cursor with the btn:[arrow-up] and btn:[arrow-down] buttons on your keyboard and select items by pressing the kbd:[ENTER] key. +
+Once you have marked all necessary namespaces, you can continue with the kbd:[c] key.
+
+After the namespace selection, the actual failover migration happens. In this view you will see a log, similar to the installation screen. +
+The failover will traverse different phases in this order:
+
+1. Try to demote PVs in the primary cluster +
+-> This is OK to fail in case that the primary cluster is not reachable any more
+2. Promote the PVs on the secondary cluster +
+-> This will enable write support on persistent volumes in the secondary cluster
+3. Start the OADP restore of metadata in the selected namespaces +
+-> This is an optional step and will only be executed if OADP is detected in the secondary cluster
+
+Once everything is done, you can exit back to the main menu with either the kbd:[ENTER] or kbd:[ESC] key.
+
+This is what a finished failover can look like:
+
+image::usage/failoverFinished.png[Finished failover]
