@@ -281,6 +281,8 @@ func syncPVs(from, to kubeAccess) error {
 	failureDuringCreation := false
 	for _, pv := range mirroredPVs {
 		pv.ResourceVersion = ""
+		pv.Spec.ClaimRef.ResourceVersion = ""
+		pv.Spec.ClaimRef.UID = ""
 		_, err = to.typedClient.CoreV1().PersistentVolumes().Create(context.TODO(), &pv, metav1.CreateOptions{})
 		if err != nil {
 			failureDuringCreation = true
