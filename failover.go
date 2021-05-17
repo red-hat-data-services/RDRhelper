@@ -187,6 +187,7 @@ func workOnFailoverWithNamespaces(from, to kubeAccess, namespaces []string, fail
 	addRowOfTextOutput(failoverLog, "Starting namespace recovery in the %s cluster!", to.name)
 	err = setNamespacesToRestore(to, namespaces)
 	if err != nil {
+		log.Errorf("Issues when restoring namespaces with OADP: %s\n\nCheck the log for more information", err)
 		showAlert(fmt.Sprintf("Issues when restoring namespaces with OADP: %s\n\nCheck the log for more information", err))
 	}
 	addRowOfTextOutput(failoverLog, "Recovery CR is created, waiting for Recovery to finish...")
