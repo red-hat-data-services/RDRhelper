@@ -9,6 +9,7 @@
 :experimental:
 :source-highlighter: pygments
 :hide-uri-scheme:
+:imagesdir: ../images
 
 :RDRreleaseLink: https://gitlab.consulting.redhat.com/cblum/RDRhelper/-/releases[RDRhelper Releases^]
 
