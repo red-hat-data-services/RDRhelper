@@ -443,7 +443,7 @@ Now create new *CephBlockPool*.
 
 [source,role="execute"]
 ----
-curl -s https://raw.githubusercontent.com/red-hat-storage/RDRhelper/master/docs/modules/manual/attachments/replicapool.yaml | oc apply -f -
+curl -s https://raw.githubusercontent.com/red-hat-data-services/RDRhelper/master/docs/modules/manual/attachments/replicapool.yaml | oc apply -f -
 ----
 .Example output:
 ----
@@ -608,7 +608,7 @@ Now create the `rbd-mirror` *Pod* for the *primary site*:
 
 [source,role="execute"]
 ----
-curl -s https://raw.githubusercontent.com/red-hat-storage/RDRhelper/master/docs/modules/manual/attachments/rbd-mirror.yaml | sed -e "s/SECRET/${SECRET}/g" | oc apply -f -
+curl -s https://raw.githubusercontent.com/red-hat-data-services/RDRhelper/master/docs/modules/manual/attachments/rbd-mirror.yaml | sed -e "s/SECRET/${SECRET}/g" | oc apply -f -
 ----
 .Example output:
 ----
@@ -683,7 +683,7 @@ Now create the *StorageClass*:
 
 [source,role="execute"]
 ----
-curl -s https://raw.githubusercontent.com/red-hat-storage/RDRhelper/master/docs/modules/manual/attachments/ocs-storagecluster-ceph-mirror.yaml | oc apply -f -
+curl -s https://raw.githubusercontent.com/red-hat-data-services/RDRhelper/master/docs/modules/manual/attachments/ocs-storagecluster-ceph-mirror.yaml | oc apply -f -
 ----
 .Example output:
 ----
@@ -1151,7 +1151,7 @@ Now create the *Backup* for `my-database-app` namespace.
 
 [source,role="execute"]
 ----
-curl -s https://raw.githubusercontent.com/red-hat-storage/RDRhelper/master/docs/modules/manual/attachments/backup.yaml | oc apply -f -
+curl -s https://raw.githubusercontent.com/red-hat-data-services/RDRhelper/master/docs/modules/manual/attachements/backup.yaml | oc apply -f -
 ----
 .Example output:
 ----
@@ -1398,7 +1398,7 @@ IMPORTANT: Make sure to issue this command on the *secondary cluster*. The names
 
 [source,role="execute"]
 ----
-curl -s https://raw.githubusercontent.com/red-hat-storage/RDRhelper/master/docs/modules/manual/attachments/restore.yaml | oc apply -f -
+curl -s https://raw.githubusercontent.com/red-hat-data-services/RDRhelper/master/docs/modules/manual/attachments/restore.yaml | oc apply -f -
 ----
 .Example output:
 ----
