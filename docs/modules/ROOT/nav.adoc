@@ -1,0 +1,1 @@
+* xref:training::index.adoc[Back to general ODF documents]

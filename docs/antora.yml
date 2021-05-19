@@ -2,5 +2,6 @@ name: RegionalDR
 title: ODF Regional DR
 version: master
 nav:
+  - modules/ROOT/nav.adoc
   - modules/helper/nav.adoc
   - modules/manual/nav.adoc
