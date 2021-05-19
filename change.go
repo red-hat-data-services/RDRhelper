@@ -220,7 +220,7 @@ func setNamespacesToBackup(cluster kubeAccess, namespaces []string) {
 				IncludedNamespaces: namespaces,
 				ExcludedResources:  []string{"imagetags.image.openshift.io"},
 				SnapshotVolumes:    &snapshotVolumeSetting,
-				TTL:                metav1.Duration{10 * 24 * time.Hour},
+				TTL:                metav1.Duration{8 * time.Hour},
 				StorageLocation:    "default",
 			},
 			Schedule: "*/10 * * * *", // every 10 minutes
