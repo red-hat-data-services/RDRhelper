@@ -1151,7 +1151,7 @@ Now create the *Backup* for `my-database-app` namespace.
 
 [source,role="execute"]
 ----
-curl -s https://raw.githubusercontent.com/red-hat-data-services/RDRhelper/master/docs/modules/manual/attachements/backup.yaml | oc apply -f -
+curl -s https://raw.githubusercontent.com/red-hat-data-services/RDRhelper/master/docs/modules/manual/attachments/backup.yaml | oc apply -f -
 ----
 .Example output:
 ----
