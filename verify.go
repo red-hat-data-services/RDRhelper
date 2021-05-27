@@ -53,7 +53,6 @@ func showVerifyPage(kubeConfigPrimary, kubeConfigSecondary kubeAccess) error {
 		err = verifyOADPOperator(cluster)
 		if err != nil {
 			warningmsg := fmt.Sprintf("[%s] WARNING when verifying OADP Mirror Pods.", cluster.name)
-			log.WithError(err).Warn("Warning when verifying OADP Mirror Pods.")
 			addRowOfTextOutput(verifyText, warningmsg)
 		}
 
