@@ -212,18 +212,29 @@ subctl deploy-broker --kubeconfig site1/auth/kubeconfig
 ----
 .Example output:
 ----
- ✓ Deploying broker
- ✓ Creating broker-info.subm file
+ ✓ Setting up broker RBAC 
+ ✓ Deploying the Submariner operator 
+ ✓ Created operator CRDs
+ ✓ Created operator namespace: submariner-operator
+ ✓ Created operator service account and role
+ ✓ Updated the privileged SCC
+ ✓ Created lighthouse service account and role
+ ✓ Updated the privileged SCC
+ ✓ Created Lighthouse service accounts and roles
+ ✓ Deployed the operator successfully
+ ✓ Deploying the broker 
+ ✓ The broker has been deployed
+ ✓ Creating broker-info.subm file 
  ✓ A new IPsec PSK will be generated for broker-info.subm
 ----
 
 Now we want to create the connection between the two OCP clusters. The `gateway` *Pod* will be created on the node selected from the displayed list of available nodes during the `subctl join`.
 
-NOTE: The `--disable-nat` flag is used when the connection between the two OCP clusters does not involve `NAT` (Network Address Translation). Reference https://submariner.io/operations/deployment[Submariner documentation] for how to `subctl join` OCP clusters using `NAT`.
+NOTE: The `--natt=false` flag is used when the connection between the two OCP clusters does not involve `NAT` (Network Address Translation). Reference https://submariner.io/operations/deployment[Submariner documentation] for how to `subctl join` OCP clusters using `NAT`.
 
 [source,role="execute"]
 ----
-subctl join --kubeconfig site1/auth/kubeconfig --clusterid site1 broker-info.subm --disable-nat
+subctl join --kubeconfig site1/auth/kubeconfig --clusterid site1 broker-info.subm --natt=false
 ----
 .Example output:
 ----
@@ -236,17 +247,10 @@ subctl join --kubeconfig site1/auth/kubeconfig --clusterid site1 broker-info.sub
  ✓ Discovering network details
  ✓ Validating Globalnet configurations
  ✓ Discovering multi cluster details
- ✓ Deploying the Submariner operator
- ✓ Created operator CRDs
- ✓ Created operator namespace: submariner-operator
- ✓ Created operator service account and role
- ✓ Updated the privileged SCC
- ✓ Created lighthouse service account and role
- ✓ Updated the privileged SCC
+ ✓ Deploying the Submariner operator 
  ✓ Created Lighthouse service accounts and roles
- ✓ Deployed the operator successfully
- ✓ Creating SA for cluster
- ✓ Deploying Submariner
+ ✓ Creating SA for cluster 
+ ✓ Deploying Submariner 
  ✓ Submariner is up and running
 ----
 
@@ -254,7 +258,7 @@ Next, do a similar command for `site2`. The displayed list of available nodes fo
 
 [source,role="execute"]
 ----
-subctl join --kubeconfig site2/auth/kubeconfig --clusterid site2 broker-info.subm --disable-nat
+subctl join --kubeconfig site2/auth/kubeconfig --clusterid site2 broker-info.subm --natt=false
 ----
 .Example output:
 ----
@@ -333,7 +337,8 @@ subctl show connections --kubeconfig site1/auth/kubeconfig | egrep 'connect|erro
 ----
 .Example output:
 ----
-site2-lc8kr-worker-8j2qk        site2                   10.70.56.173    libreswan           10.112.0.0/16, 10.12.0.0/16             connected
+site2-wsj9g-worker-4c446  site2    10.70.56.142  no   libreswan     10.112.0.0/16, 10.12.0.0/16  connected  560.701µ
+[...]
 ----
 
 And then using `site2` kubeconfig.
@@ -344,7 +349,8 @@ subctl show connections --kubeconfig site2/auth/kubeconfig | egrep 'connect|erro
 ----
 .Example output:
 ----
-site1-fqldq-worker-975qq        site1                   10.70.56.191    libreswan           10.16.0.0/16, 10.6.0.0/16               connected
+site1-vwgpp-worker-fd4gs  site1    10.70.56.202  no   libreswan     10.16.0.0/16, 10.6.0.0/16  connected  459.831µs
+[...]
 ----
 
 CAUTION: If either site has a *_connecting_* or *_error_* status instead of *_connected_* status there is something wrong with the multisite connectivity. Only proceed after both ways show *_connected_*. Reference https://submariner.io/operations/troubleshooting[Submariner Troubleshooting documentation].
