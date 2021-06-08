@@ -615,7 +615,7 @@ To get the `secret` for the *primary cluster* do the following:
 
 [source,role="execute"]
 ----
-SECRET=$(oc get secrets | grep openshift-storage | awk {'print $1}')
+SECRET=$(oc get secrets -n openshift-storage | grep openshift-storage | awk {'print $1}')
 echo $SECRET
 ----
 .Example output:
