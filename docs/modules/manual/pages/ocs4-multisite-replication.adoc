@@ -145,27 +145,11 @@ oc get networks.config.openshift.io cluster -o json | jq .spec
 }
 ----
 
+NOTE: Once the two OCP clusters are created, note the location of their unique `kubeconfig` (i.e.~/site1/auth/kubeconfig).
+
 ===== On AWS clusters
 
-For OCP on AWS the following packages needs to be available on your deploy host to install `Submariner`:
-
-* AWS CLI
-* Terraform version 0.12 (maximum version is 0.12.12)
-* wget
-
-You also need to download the `prep_for_subm.sh` script to install `Submariner` when one or both of your OCP clusters are on AWS.
-
-[source,role="execute"]
-----
-curl https://raw.githubusercontent.com/submariner-io/submariner/devel/tools/openshift/ocp-ipi-aws/prep_for_subm.sh -L -O
-----
-
-Now make `prep_for_subm.sh` executable.
-
-[source,role="execute"]
-----
-chmod a+x ./prep_for_subm.sh
-----
+For installing `Submariner` on AWS the https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html[AWS Command Line Interface] needs to be installed on your deploy host.
 
 Refer to these links for additional information about prerequisites when at least one OCP instance is installed on AWS.
 
@@ -174,11 +158,11 @@ Refer to these links for additional information about prerequisites when at leas
 
 ===== On non-AWS clusters
 
-For non-AWS OCP clusters the only requirement is to download the `subctl` client that will be used for most `Submariner` commands.
+For non-AWS OCP clusters the only requirement is to download and install the `subctl` client that will be used for most `Submariner` commands.
 
 ===== On all platforms
 
-Install the `subctl` to control the submariner installation
+Install the `subctl` to install and maintain the submariner installation
 
 [source,role="execute"]
 ----
@@ -194,15 +178,13 @@ export PATH=$PATH:~/.local/bin
 
 NOTE: Add exported path for `subctl` in your deploy host `.profile` or `.bashrc`.
 
-Once the two OCP clusters are created, note the location of their unique `kubeconfig` (i.e.~/site1/auth/kubeconfig).
-
 ==== Submariner Installation
 
 The `Submariner` installation detailed in this guide is for two non-AWS OCP clusters installed on VMware.
 
-NOTE: Make sure to delete any prior `broker-info.subm` file before creating a new `broker-info.subm`.
+CAUTION: Make sure to delete any prior `broker-info.subm` file before creating a new `broker-info.subm`.
 
-NOTE: All `subctl` commands can be executed from any node that has network access to the API endpoint of both clusters
+NOTE: All `subctl` commands can be executed from any node that has network access to the API endpoint for both clusters
 
 Start by deploying the `broker`.
 
@@ -1005,7 +987,7 @@ rbd -p replicapool mirror snapshot schedule ls
 ----
 .Example output:
 ----
-every 1h
+every 5m
 ----
 
 You can exit the toolbox by either pressing kbd:[Ctrl+D] or by executing exit.
