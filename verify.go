@@ -80,7 +80,6 @@ func verifyOMAPEnabled (cluster kubeAccess) error {
 	if err != nil {
 		return fmt.Errorf("[%s] ERROR: Cannot get ConfigMap: %s",cluster.name,rbdcmrookceph)
 	}
-
 	OMAPEnabled := fmt.Sprintf("[%s] CSI_ENABLE_OMAP_GENERATOR enabled? %+v",cluster.name,rbdcm.Data["CSI_ENABLE_OMAP_GENERATOR"])
 	if rbdcm.Data["CSI_ENABLE_OMAP_GENERATOR"] != "true" {
 		return fmt.Errorf("[%s] Please enable the OMAP Generator before proceeding",cluster.name)
