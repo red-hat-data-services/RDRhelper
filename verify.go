@@ -98,28 +98,28 @@ func verifyOMAPpods(cluster kubeAccess) error {
 	omappods, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).
 		List(context.TODO(), metav1.ListOptions{LabelSelector: omapLabelSelector})
 	if err != nil || len(omappods.Items) == 0 {
-		missingOMAPpodsmsg := fmt.Sprintf("[%s] ERROR: OMAP No pods in %s namespace with label %s",
+		errormsg := fmt.Sprintf("[%s] ERROR: OMAP No pods in %s namespace with label %s",
 			cluster.name, ocsNamespace, omapLabelSelector)
-		log.WithError(err).Error(missingOMAPpodsmsg)
-		addRowOfTextOutput(verifyText, missingOMAPpodsmsg)
-		return errors.WithMessagef(err,missingOMAPpodsmsg)
+		log.WithError(err).Error(errormsg)
+		addRowOfTextOutput(verifyText, errormsg)
+		return errors.WithMessagef(err,errormsg)
 	}
 	// TODO get replicas directly from deployment
 	if len(omappods.Items) != 2 {
-		missingOMAPDeploymsg := fmt.Sprintf("[%s] ERROR: There should be 2 pods from deployment/%s",
+		errormsg := fmt.Sprintf("[%s] ERROR: There should be 2 pods from deployment/%s",
 			cluster.name, omapLabelSelector)
-		log.Errorf(missingOMAPDeploymsg)
-		showAlert(missingOMAPDeploymsg)
-		return errors.New(missingOMAPDeploymsg)
+		log.Errorf(errormsg)
+		showAlert(errormsg)
+		return errors.New(errormsg)
 	}
 	for _, pod := range omappods.Items {
 		for _, container := range pod.Status.ContainerStatuses {
 			if container.Ready != true {
-				notreadyOMAPpodmsg := fmt.Sprintf("[%s] ERROR: Checking OMAP Pod: [%s] container: %s status: %t",
+				errormsg := fmt.Sprintf("[%s] ERROR: Checking OMAP Pod: [%s] container: %s status: %t",
 					cluster.name, omapLabelSelector, container.Name, container.Ready)
-				log.Errorf(notreadyOMAPpodmsg)
-				showAlert(notreadyOMAPpodmsg)
-				return errors.WithMessagef(err,notreadyOMAPpodmsg)
+				log.Errorf(errormsg)
+				showAlert(errormsg)
+				return errors.WithMessagef(err,errormsg)
 			}
 		}
 	}
@@ -134,20 +134,20 @@ func verifyRBDMirrorPods(cluster kubeAccess) error {
 		List(context.TODO(), metav1.ListOptions{LabelSelector: rbdLabelSelector})
 
 	if err != nil || len(rbdmirrorpods.Items) == 0 {
-		missingRBDpodmsg := fmt.Sprintf("[%s] ERROR: RBD Mirror No pods in %s namespace with label %s",
+		errormsg := fmt.Sprintf("[%s] ERROR: RBD Mirror No pods in %s namespace with label %s",
 			cluster.name, ocsNamespace, rbdLabelSelector)
-		log.WithError(err).Error(missingRBDpodmsg)
-		addRowOfTextOutput(verifyText, missingRBDpodmsg)
-		return errors.WithMessagef(err,missingRBDpodmsg)
+		log.WithError(err).Error(errormsg)
+		addRowOfTextOutput(verifyText, errormsg)
+		return errors.WithMessagef(err,errormsg)
 	}
 	for _, pod := range rbdmirrorpods.Items {
 		for _, container := range pod.Status.ContainerStatuses {
 			if container.Ready != true {
-				notreadyRBDpodmsg := fmt.Sprintf("[%s] ERROR: Checking RBD Mirror Pod: [%s] container: %s status: %t",
+				errormsg := fmt.Sprintf("[%s] ERROR: Checking RBD Mirror Pod: [%s] container: %s status: %t",
 					cluster.name, rbdLabelSelector, container.Name, container.Ready)
-				log.Errorf(notreadyRBDpodmsg)
-				showAlert(notreadyRBDpodmsg)
-				return errors.WithMessagef(err,notreadyRBDpodmsg)
+				log.Errorf(errormsg)
+				showAlert(errormsg)
+				return errors.WithMessagef(err,errormsg)
 			}
 		}
 	}
@@ -159,46 +159,43 @@ func verifyRBDMirrorPods(cluster kubeAccess) error {
 // oc get cephblockpools.ceph.rook.io -n openshift-storage -o json | jq '.items[].status.mirroringStatus.summary.summary'
 func verifyCBPmirror(cluster kubeAccess) error {
 	if err := cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme()); err != nil {
-		schemeErrormsg := fmt.Sprintf("[%s] Issues when adding the cephv1 scheme to the primary client",
+		errormsg := fmt.Sprintf("[%s] Issues when adding the cephv1 scheme to the primary client",
 			cluster.name)
-		log.WithError(err).Warn(schemeErrormsg)
-		showAlert(schemeErrormsg)
-		return errors.WithMessagef(err,schemeErrormsg)
+		log.WithError(err).Warn(errormsg)
+		showAlert(errormsg)
+		return errors.WithMessagef(err,errormsg)
 	}
-	// TODO discover and cycle through the different blockpools
-	//var blockPool cephv1.CephBlockPool
+	// list all cephblockpools
 	var cbpList cephv1.CephBlockPoolList
 	err := cluster.controllerClient.List(context.TODO(),
 		&cbpList, &client.ListOptions{Namespace: ocsNamespace})
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] Issues when listing CephBlockPools", cluster.name)
 	}
-//	for _, cbp := range cbpList.Items {
-//		addRowOfTextOutput(verifyText,"cbp name %s and blockpool %s",cbp.Name,blockPool.Name)
-//	}
-	blockpool := "ocs-storagecluster-cephblockpool"
-	currentBlockPool := cephv1.CephBlockPool{}
-
-	err = cluster.controllerClient.Get(context.TODO(),
-		types.NamespacedName{Name: blockpool, Namespace: ocsNamespace},
-		&currentBlockPool)
-	if err != nil {
-		fetchErrorCBPmsg := fmt.Sprintf("[%s] FETCHING ERRORS when fetching current CephBlockPool. Please fix before proceeding.", cluster.name)
-		log.WithError(err).Error(fetchErrorCBPmsg)
-		showAlert(fetchErrorCBPmsg)
-		return errors.WithMessagef(err, fetchErrorCBPmsg)
+	// Check each cephblockpool for our storage class name
+	var blockpool string
+	blockpool = ""
+	for _, cbp := range cbpList.Items  {
+		if len(cbp.OwnerReferences) > 0 && cbp.OwnerReferences[0].Name == "ocs-storagecluster" {
+			addRowOfTextOutput(verifyText, "[%s] CephBlockPool %s for cluster OK", cluster.name, cbp.Name)
+			blockpool = cbp.Name
+		}
 	}
-	//blockpool := currentBlockPool.GetName()
-	//addRowOfTextOutput(verifyText,"BPOOL %s", blockpool)
-
+	if blockpool == "" {
+		errormsg := fmt.Sprintf("[%s] ERROR finding CephBlockPool name. Please fix before proceeding.", cluster.name)
+		log.Error(errormsg)
+		showAlert(errormsg)
+		return errors.New(errormsg)
+	}
+	currentBlockPool := cephv1.CephBlockPool{}
 	err = cluster.controllerClient.Get(context.TODO(),
 		types.NamespacedName{Name: blockpool, Namespace: ocsNamespace},
 		&currentBlockPool)
 	if err != nil {
-		fetchErrorCBPmsg := fmt.Sprintf("[%s] ERRORS when fetching current CephBlockPool. Please fix before proceeding.", cluster.name)
-		log.WithError(err).Error(fetchErrorCBPmsg)
-		showAlert(fetchErrorCBPmsg)
-		return errors.WithMessagef(err, fetchErrorCBPmsg)
+		errormsg := fmt.Sprintf("[%s] FETCHING ERRORS when fetching current CephBlockPool. Please fix before proceeding.", cluster.name)
+		log.WithError(err).Error(errormsg)
+		showAlert(errormsg)
+		return errors.WithMessagef(err, errormsg)
 	}
 	for cbpkey, cbpstatus := range currentBlockPool.Status.MirroringStatus.Summary["summary"].(map[string]interface{}) {
 		if cbpkey != "states" {
@@ -215,13 +212,14 @@ func verifyCBPmirror(cluster kubeAccess) error {
 	addRowOfTextOutput(verifyText,"[%s] CephBlockPool mirror summary status OK", cluster.name)
 	return nil
 }
+
 // Check and warn if OADP is not installed (but it's optional)
 func verifyOADPOperator(cluster kubeAccess) error {
 	oadppod, err := cluster.typedClient.CoreV1().Pods("oadp-operator").
 		List(context.TODO(), metav1.ListOptions{})
 	if err != nil || len(oadppod.Items) == 0 {
-		warningOADPmsg := fmt.Sprintf("[%s] WARNING: No OADP. Please consider installing OADP",cluster.name)
-		addRowOfTextOutput(verifyText,warningOADPmsg)
+		warningmsg := fmt.Sprintf("[%s] WARNING: No OADP. Please consider installing OADP",cluster.name)
+		addRowOfTextOutput(verifyText,warningmsg)
 	} else {
 		for _, mypod := range oadppod.Items {
 			podstatusCondition := mypod.Status.Conditions[1]
