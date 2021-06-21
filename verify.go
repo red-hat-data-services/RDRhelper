@@ -114,14 +114,20 @@ func verifyOMAPpods(cluster kubeAccess) error {
 	}
 	for _, pod := range omappods.Items {
 		for _, container := range pod.Status.ContainerStatuses {
-			if container.Ready != true {
-				errormsg := fmt.Sprintf("[%s] ERROR: Checking OMAP Pod: [%s] container: %s status: %t",
+			if ! container.Ready {
+				errormsg := fmt.Sprintf("[%s] ERROR: Checking app=csi-rbdplugin-provisioner (OMAP) sidecar Pods: [%s] container: %s status: %t",
 					cluster.name, omapLabelSelector, container.Name, container.Ready)
 				log.Errorf(errormsg)
 				showAlert(errormsg)
 				return errors.WithMessagef(err,errormsg)
 			}
 		}
+	}
+	if ! checkForOMAPGenerator(cluster) {
+		errormsg := fmt.Sprintf("[%s] ERROR: OMAP Generator Container not present in app=csi-rbdplugin-provisioner (OMAP) Pods.", cluster.name)
+		log.Errorf(errormsg)
+		showAlert(errormsg)
+		return errors.WithMessagef(err,errormsg)
 	}
 	addRowOfTextOutput(verifyText, "[%s] Setup for mirrored relationship OK", cluster.name)
     return nil
@@ -172,44 +178,43 @@ func verifyCBPmirror(cluster kubeAccess) error {
 	if err != nil {
 		return errors.WithMessagef(err, "[%s] Issues when listing CephBlockPools", cluster.name)
 	}
-	// Check each cephblockpool for our storage class name
-	var blockpool string
-	blockpool = ""
+
+	cbpMirrorHealthKeys := map[string]bool {
+		"daemon_health": true,
+		"health": true,
+		"image_health": true,
+	}
+//	if visitedURL[thisSite] {
+//		fmt.Println("Already been here.")
+//	}
+	// For each cbp that has mirroring enabled, check mirror summary health status details
 	for _, cbp := range cbpList.Items  {
-		if len(cbp.OwnerReferences) > 0 && cbp.OwnerReferences[0].Name == "ocs-storagecluster" {
-			addRowOfTextOutput(verifyText, "[%s] CephBlockPool %s for cluster OK", cluster.name, cbp.Name)
-			blockpool = cbp.Name
-		}
-	}
-	if blockpool == "" {
-		errormsg := fmt.Sprintf("[%s] ERROR finding CephBlockPool name. Please fix before proceeding.", cluster.name)
-		log.Error(errormsg)
-		showAlert(errormsg)
-		return errors.New(errormsg)
-	}
-	currentBlockPool := cephv1.CephBlockPool{}
-	err = cluster.controllerClient.Get(context.TODO(),
-		types.NamespacedName{Name: blockpool, Namespace: ocsNamespace},
-		&currentBlockPool)
-	if err != nil {
-		errormsg := fmt.Sprintf("[%s] FETCHING ERRORS when fetching current CephBlockPool. Please fix before proceeding.", cluster.name)
-		log.WithError(err).Error(errormsg)
-		showAlert(errormsg)
-		return errors.WithMessagef(err, errormsg)
-	}
-	for cbpkey, cbpstatus := range currentBlockPool.Status.MirroringStatus.Summary["summary"].(map[string]interface{}) {
-		if cbpkey != "states" {
-			if cbpstatus != "OK" {
-				statusCBPnotready := fmt.Sprintf("[%s] CephBlockPool Mirror Status %s is %s. Please investigate.",
-					cluster.name, cbpkey, cbpstatus)
-				log.Error(statusCBPnotready)
-				showAlert(statusCBPnotready)
-				return errors.WithMessagef(err, "[%s] ERROR CephBlockPool mirror summary status %s %s",
-					cluster.name, cbpkey, cbpstatus)
+		if cbp.Spec.Mirroring.Enabled {
+			addRowOfTextOutput(verifyText, "[%s] CephBlockPool %s Mirroring Enabled", cluster.name, cbp.Name)
+			currentBlockPool := cephv1.CephBlockPool{}
+			err = cluster.controllerClient.Get(context.TODO(),
+				types.NamespacedName{Name: cbp.Name, Namespace: ocsNamespace},
+				&currentBlockPool)
+			if err != nil {
+				errormsg := fmt.Sprintf("[%s] FETCHING ERRORS when fetching current CephBlockPool. Please fix before proceeding.", cluster.name)
+				log.WithError(err).Error(errormsg)
+				showAlert(errormsg)
+				return errors.WithMessagef(err, errormsg)
 			}
+			for cbpHealthKey, cbpMirrorHealth := range currentBlockPool.Status.MirroringStatus.Summary["summary"].(map[string]interface{}) {
+				// no cbpHealthKey in list. :-/
+				if cbpMirrorHealthKeys[cbpHealthKey] && cbpMirrorHealth != "OK"{
+					statusCBPnotready := fmt.Sprintf("[%s] CephBlockPool %s: %s is %s. Please investigate",
+						cluster.name, cbp.Name, cbpHealthKey, cbpMirrorHealth)
+					log.Error(statusCBPnotready)
+					showAlert(statusCBPnotready)
+					return errors.WithMessagef(err, "[%s] ERROR %s CephBlockPool mirror summary status %s %s",
+						cluster.name, cbp.Name, cbpHealthKey, cbpMirrorHealth)
+				}
+			}
+			addRowOfTextOutput(verifyText,"[%s] CephBlockPool %s Mirror Summary Health OK", cluster.name, cbp.Name)
 		}
 	}
-	addRowOfTextOutput(verifyText,"[%s] CephBlockPool mirror summary status OK", cluster.name)
 	return nil
 }
 
