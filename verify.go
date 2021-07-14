@@ -1,19 +1,18 @@
 package main
 
-//
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	//	"k8s.io/apimachinery/pkg/types"
-
-	//	"github.com/operator-framework/api/pkg/lib/version"
+	"github.com/gdamore/tcell/v2"
 	"github.com/pkg/errors"
 	"github.com/rivo/tview"
+
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"github.com/gdamore/tcell/v2"
+
+	"k8s.io/apimachinery/pkg/types"
 )
 
 var verifyText = tview.NewTextView().
@@ -21,122 +20,222 @@ var verifyText = tview.NewTextView().
 		app.Draw()
 	})
 
-
-func addRowOfVerifyTextOutput(newText string) {
-	fmt.Fprintln(verifyText, newText)
-}
-
 func init() {
-		verifyText.
-			SetDoneFunc(func(key tcell.Key) {
-				verifyText.Clear()
-				pages.RemovePage("install")
-				pages.SwitchToPage("main")
-			    //log.Out = logFile
-			})
-	}
+	verifyText.
+		SetDoneFunc(func(key tcell.Key) {
+			verifyText.Clear()
+			pages.RemovePage("verify")
+			pages.SwitchToPage("main")
+		})
+}
 
-func showVerifyPage(kubeConfigPrimary kubeAccess, kubeConfigSecondary kubeAccess) {
+func showVerifyPage(kubeConfigPrimary, kubeConfigSecondary kubeAccess) error {
 	pages.AddAndSwitchToPage("verify", verifyText, true)
-	log.Out = verifyText
-
 	clusters := []kubeAccess{ kubeConfigPrimary, kubeConfigSecondary }
-	for cluster := range clusters {
-		addRowOfVerifyTextOutput("")
-		addRowOfVerifyTextOutput(fmt.Sprintf("%s cluster", clusters[cluster].name))
+	for _, cluster := range clusters {
+		err := verifyOMAPpods(cluster)
+		if err != nil {
+			errormsg := fmt.Sprintf("[%s] ERRORS when verifying OMAP Pods. Please fix before proceeding.", cluster.name)
+			log.WithError(err).Warn(errormsg)
+			showAlert(errormsg)
+			addRowOfTextOutput(verifyText, "Press ENTER to get back to main")
+			return err
+		}
 
-		err := verifyRBDMirrorPods(clusters[cluster])
-    	if err != nil {
-    		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
-    	}
+		err = verifyRBDMirrorPods(cluster)
+		if err != nil {
+			errormsg := fmt.Sprintf("[%s] ERRORS when verifying RBD Mirror Pods. Please fix before proceeding.", cluster.name)
+			log.WithError(err).Warn(errormsg)
+			showAlert(errormsg)
+			addRowOfTextOutput(verifyText, "Press ENTER to get back to main")
+			return err
+		}
 
-    	err = verifyCBPmirror(clusters[cluster])
-    	if err != nil {
-    		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
-    	}
+		err = verifyCBPmirror(cluster)
+		if err != nil {
+			errormsg := fmt.Sprintf("[%s] ERRORS when verifying Ceph Block Pool Pods. Please fix before proceeding.", cluster.name)
+			log.WithError(err).Error(errormsg)
+			showAlert(errormsg)
+			addRowOfTextOutput(verifyText, "Press ENTER to get back to main")
+			return err
+		}
 
-    	err = verifyOADPOperator(clusters[cluster])
-    	if err != nil {
-    		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
-    	}
+		err = verifyOADPOperator(cluster)
+		if err != nil {
+			warningmsg := fmt.Sprintf("[%s] WARNING when verifying OADP Mirror Pods.", cluster.name)
+			addRowOfTextOutput(verifyText, warningmsg)
+		}
+
 	}
-
-}
-
-// to be removed? no longer in issue list
-func verifyOcsOperator(cluster kubeAccess) (string) {
-	ocspod, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "app=rook-ceph-operator"})
-	if err != nil || len(ocspod.Items) == 0 {
-		errors.Wrapf(err, "error when looking for ocs operator pod in %s namespace", ocsNamespace)
-		log.WithError(err).Warn("OCS operator pods not found")
-		addRowOfVerifyTextOutput("OCS NOT installed?")
-		return "FAILED no ocs operator found"
-	}
-
-	if len(ocspod.Items) > 1 {
-		log.WithError(err).Warn("multiple ocs operator pods found")
-		return "FAILED multiple ocs operators installed"
-	}
-	//addRowOfVerifyTextOutput(fmt.Sprintf("OCS operator OK: %s %s",ocspod.Items[0].Name,ocspod.Items[0].Status.Phase))
-	return "OCS operator OK"
-}
-
-// Check and warn if OADP is not installed (but it's optional)
-func verifyOADPOperator(cluster kubeAccess) (error) {
-	oadppod, err := cluster.typedClient.CoreV1().Pods("oadp-operator").List(context.TODO(), metav1.ListOptions{})
-	// Does len(oadppod.Items need to be 3? (velero, aws default and operator?)
-	if err != nil || len(oadppod.Items) == 0 {
-		addRowOfVerifyTextOutput("OADP does NOT appear to be installed and running. Please consider installing OADP.")
-		return err
-	}
-	addRowOfVerifyTextOutput("OADP Operator ... OK")
+	addRowOfTextOutput(verifyText, "Press ENTER to get back to main")
 	return nil
 }
 
-//Check that the RBDMirror Pods are Running
-func verifyRBDMirrorPods(cluster kubeAccess) (error) {
-	rbdlabelselector := "app=csi-rbdplugin-provisioner"
-	rbdmirrorpods, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).List(context.TODO(), metav1.ListOptions{LabelSelector: rbdlabelselector})
-	if err != nil || len(rbdmirrorpods.Items) == 0 {
-		errors.Wrapf(err, "error when looking for rbd mirror pods in %s namespace", ocsNamespace)
-		addRowOfVerifyTextOutput(fmt.Sprintf("RBDMirrorPods NOT OK. No pods in %s namespace with label %s found!", ocsNamespace, rbdlabelselector ))
+// Check OMAP configmap was enabled/patched "configmap/rook-ceph-operator-config patched"
+func verifyOMAPEnabled (cluster kubeAccess) error {
+	rbdcmrookceph := "rook-ceph-operator-config"
+	rbdcm, err := cluster.typedClient.CoreV1().ConfigMaps(ocsNamespace).Get(context.TODO(),
+		rbdcmrookceph, metav1.GetOptions{})
+
+	if err != nil {
+		return fmt.Errorf("[%s] ERROR: Cannot get ConfigMap: %s",cluster.name,rbdcmrookceph)
+	}
+	OMAPEnabled := fmt.Sprintf("[%s] CSI_ENABLE_OMAP_GENERATOR enabled? %+v",cluster.name,rbdcm.Data["CSI_ENABLE_OMAP_GENERATOR"])
+	if rbdcm.Data["CSI_ENABLE_OMAP_GENERATOR"] != "true" {
+		return fmt.Errorf("[%s] Please enable the OMAP Generator before proceeding",cluster.name)
+	}
+	addRowOfTextOutput(verifyText,OMAPEnabled)
+	return nil
+}
+
+// 1.2.2. Configuring RBD Mirroring between ODF clusters
+// oc -n openshift-storage get pods -l app=csi-rbd-plugin-provisioner
+func verifyOMAPpods(cluster kubeAccess) error {
+	omapLabelSelector := "app=csi-rbdplugin-provisioner"
+	if err := verifyOMAPEnabled(cluster); err != nil {
 		return err
 	}
-
-	if len(rbdmirrorpods.Items) != 2 {
-		return errors.New("There should be 2 pods from deployment/csi-rbdplugin-provisioner")
+	omappods, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).
+		List(context.TODO(), metav1.ListOptions{LabelSelector: omapLabelSelector})
+	if err != nil || len(omappods.Items) == 0 {
+		errormsg := fmt.Sprintf("[%s] ERROR: OMAP No pods in %s namespace with label %s",
+			cluster.name, ocsNamespace, omapLabelSelector)
+		log.WithError(err).Error(errormsg)
+		addRowOfTextOutput(verifyText, errormsg)
+		return errors.WithMessagef(err,errormsg)
 	}
-
-	for rbd := range rbdmirrorpods.Items {
-		addRowOfVerifyTextOutput(fmt.Sprintf("RBD Mirror Deployment %d of 2",rbd+1))
-		for rbdpod := range rbdmirrorpods.Items[rbd].Spec.Containers {
-			addRowOfVerifyTextOutput(fmt.Sprintf("RBD Mirror Pod %s ... OK",rbdmirrorpods.Items[rbd].Spec.Containers[rbdpod].Name))
+	// TODO get replicas directly from deployment
+	if len(omappods.Items) != 2 {
+		errormsg := fmt.Sprintf("[%s] ERROR: There should be 2 pods from deployment/%s",
+			cluster.name, omapLabelSelector)
+		log.Errorf(errormsg)
+		showAlert(errormsg)
+		return errors.New(errormsg)
+	}
+	for _, pod := range omappods.Items {
+		for _, container := range pod.Status.ContainerStatuses {
+			if ! container.Ready {
+				errormsg := fmt.Sprintf("[%s] ERROR: Checking app=csi-rbdplugin-provisioner (OMAP) sidecar Pods: [%s] container: %s status: %t",
+					cluster.name, omapLabelSelector, container.Name, container.Ready)
+				log.Errorf(errormsg)
+				showAlert(errormsg)
+				return errors.WithMessagef(err,errormsg)
+			}
 		}
-    }
+	}
+	if ! checkForOMAPGenerator(cluster) {
+		errormsg := fmt.Sprintf("[%s] ERROR: OMAP Generator Container not present in app=csi-rbdplugin-provisioner (OMAP) Pods.", cluster.name)
+		log.Errorf(errormsg)
+		showAlert(errormsg)
+		return errors.WithMessagef(err,errormsg)
+	}
+	addRowOfTextOutput(verifyText, "[%s] Setup for mirrored relationship OK", cluster.name)
     return nil
 }
 
-// CephBlockPool mirror status is OK
-func verifyCBPmirror(cluster kubeAccess) (error) {
-	if err := cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme()); err != nil {
-		log.WithError(err).Warn("Issues when adding the cephv1 scheme to the primary client")
+// oc get pods -l 'app=rook-ceph-rbd-mirror' -n openshift-storage
+func verifyRBDMirrorPods(cluster kubeAccess) error {
+	rbdLabelSelector := "app=rook-ceph-rbd-mirror"
+	rbdmirrorpods, err := cluster.typedClient.CoreV1().Pods(ocsNamespace).
+		List(context.TODO(), metav1.ListOptions{LabelSelector: rbdLabelSelector})
+
+	if err != nil || len(rbdmirrorpods.Items) == 0 {
+		errormsg := fmt.Sprintf("[%s] ERROR: RBD Mirror No pods in %s namespace with label %s",
+			cluster.name, ocsNamespace, rbdLabelSelector)
+		log.WithError(err).Error(errormsg)
+		addRowOfTextOutput(verifyText, errormsg)
+		return errors.WithMessagef(err,errormsg)
 	}
-	poolname := "ocs-storagecluster-cephblockpool"
-	currentBlockPool := cephv1.CephBlockPool{}
-	err := cluster.controllerClient.Get(context.TODO(),
-		types.NamespacedName{Name: poolname, Namespace: ocsNamespace},
-		&currentBlockPool)
-	if err != nil {
-		return errors.WithMessagef(err, "Issues when fetching current CephBlockPool in %s cluster", cluster.name)
-	}
-	for k, v := range currentBlockPool.Status.MirroringStatus.Summary["summary"].(map[string]interface{}) {
-		if k != "states" {
-			if v != "OK" {
-				addRowOfVerifyTextOutput(fmt.Sprintf(" CBP pod %s NOT OK. status: %s", k, v))
-				return errors.WithMessagef(err, "CBP mirror status error %s in %s cluster", v, cluster.name)
+	for _, pod := range rbdmirrorpods.Items {
+		for _, container := range pod.Status.ContainerStatuses {
+			if container.Ready != true {
+				errormsg := fmt.Sprintf("[%s] ERROR: Checking RBD Mirror Pod: [%s] container: %s status: %t",
+					cluster.name, rbdLabelSelector, container.Name, container.Ready)
+				log.Errorf(errormsg)
+				showAlert(errormsg)
+				return errors.WithMessagef(err,errormsg)
 			}
-			addRowOfVerifyTextOutput(fmt.Sprintf("CephBlockPool pod %s ... %s", k, v))
 		}
+	}
+	addRowOfTextOutput(verifyText, "[%s] RBD Mirror Pods OK", cluster.name)
+	return nil
+}
+
+// 1.2.2 Verify Ceph block pool has mirroring enabled
+// oc get cephblockpools.ceph.rook.io -n openshift-storage -o json | jq '.items[].status.mirroringStatus.summary.summary'
+func verifyCBPmirror(cluster kubeAccess) error {
+	if err := cephv1.AddToScheme(kubeConfigPrimary.controllerClient.Scheme()); err != nil {
+		errormsg := fmt.Sprintf("[%s] Issues when adding the cephv1 scheme to the primary client",
+			cluster.name)
+		log.WithError(err).Warn(errormsg)
+		showAlert(errormsg)
+		return errors.WithMessagef(err,errormsg)
+	}
+	// list all cephblockpools
+	var cbpList cephv1.CephBlockPoolList
+	err := cluster.controllerClient.List(context.TODO(),
+		&cbpList, &client.ListOptions{Namespace: ocsNamespace})
+	if err != nil {
+		return errors.WithMessagef(err, "[%s] Issues when listing CephBlockPools", cluster.name)
+	}
+
+	cbpMirrorHealthKeys := map[string]bool {
+		"daemon_health": true,
+		"health": true,
+		"image_health": true,
+	}
+//	if visitedURL[thisSite] {
+//		fmt.Println("Already been here.")
+//	}
+	// For each cbp that has mirroring enabled, check mirror summary health status details
+	for _, cbp := range cbpList.Items  {
+		if cbp.Spec.Mirroring.Enabled {
+			addRowOfTextOutput(verifyText, "[%s] CephBlockPool %s Mirroring Enabled", cluster.name, cbp.Name)
+			currentBlockPool := cephv1.CephBlockPool{}
+			err = cluster.controllerClient.Get(context.TODO(),
+				types.NamespacedName{Name: cbp.Name, Namespace: ocsNamespace},
+				&currentBlockPool)
+			if err != nil {
+				errormsg := fmt.Sprintf("[%s] FETCHING ERRORS when fetching current CephBlockPool. Please fix before proceeding.", cluster.name)
+				log.WithError(err).Error(errormsg)
+				showAlert(errormsg)
+				return errors.WithMessagef(err, errormsg)
+			}
+			for cbpHealthKey, cbpMirrorHealth := range currentBlockPool.Status.MirroringStatus.Summary["summary"].(map[string]interface{}) {
+				// no cbpHealthKey in list. :-/
+				if cbpMirrorHealthKeys[cbpHealthKey] && cbpMirrorHealth != "OK"{
+					statusCBPnotready := fmt.Sprintf("[%s] CephBlockPool %s: %s is %s. Please investigate",
+						cluster.name, cbp.Name, cbpHealthKey, cbpMirrorHealth)
+					log.Error(statusCBPnotready)
+					showAlert(statusCBPnotready)
+					return errors.WithMessagef(err, "[%s] ERROR %s CephBlockPool mirror summary status %s %s",
+						cluster.name, cbp.Name, cbpHealthKey, cbpMirrorHealth)
+				}
+			}
+			addRowOfTextOutput(verifyText,"[%s] CephBlockPool %s Mirror Summary Health OK", cluster.name, cbp.Name)
+		}
+	}
+	return nil
+}
+
+// Check and warn if OADP is not installed (but it's optional)
+func verifyOADPOperator(cluster kubeAccess) error {
+	oadppod, err := cluster.typedClient.CoreV1().Pods("oadp-operator").
+		List(context.TODO(), metav1.ListOptions{})
+	if err != nil || len(oadppod.Items) == 0 {
+		warningmsg := fmt.Sprintf("[%s] WARNING: No OADP. Please consider installing OADP",cluster.name)
+		addRowOfTextOutput(verifyText,warningmsg)
+	} else {
+		for _, mypod := range oadppod.Items {
+			podstatusCondition := mypod.Status.Conditions[1]
+			if podstatusCondition.Status == "False" {
+				errormsg := fmt.Sprintf("[%s] ERROR: OADP Operator Check %s container ready? %s", cluster.name, mypod.Name, podstatusCondition.Status)
+				log.Error(errormsg)
+				showAlert(errormsg)
+				return errors.New(errormsg)
+			}
+		}
+		addRowOfTextOutput(verifyText, "[%s] OADP Operator status OK", cluster.name)
 	}
 	return nil
 }
