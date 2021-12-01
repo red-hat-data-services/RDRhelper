@@ -472,7 +472,7 @@ Now get the site name for the *secondary cluster*:
 
 [source,role="execute"]
 ----
-oc --kubeconfig site2/auth/kubeconfig get cephblockpools.ceph.rook.io replicapool -n openshift-storage -o jsonpath='{.status.mirroringInfo.summary.summary.site_name}{"\n"}'
+oc --kubeconfig site2/auth/kubeconfig get cephblockpools.ceph.rook.io replicapool -n openshift-storage -o jsonpath='{.status.mirroringInfo.site_name}{"\n"}'
 ----
 .Example output:
 ----
