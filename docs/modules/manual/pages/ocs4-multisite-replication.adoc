@@ -631,7 +631,7 @@ Check the status of the `rbd-mirror` daemon health.
 
 [source,role="execute"]
 ----
-oc get cephblockpools.ceph.rook.io replicapool -n openshift-storage -o jsonpath='{.status.mirroringStatus.summary.summary}{"\n"}'
+oc get cephblockpools.ceph.rook.io replicapool -n openshift-storage -o jsonpath='{.status.mirroringStatus.summary}{"\n"}'
 ----
 .Example output:
 ----
