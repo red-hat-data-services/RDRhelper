@@ -14,6 +14,10 @@
 :imagesdir: ../images
 // endif::[]
 
+include::partial$do-not-use.adoc[]
+
+//////////////////////////////////////////
+
 The Regional-DR helper tool (also known as RDRhelper) can help you set up and manage Regional-DR replication between two OpenShift clusters based on OpenShift Data Foundation. Once Regional-DR is set up, RDRhelper can help you in doing the Failover of your application from one cluster to the other and failback.
 
 == Setting up cluster connectivity
@@ -186,3 +190,4 @@ Once everything is done, you can exit back to the main menu with either the kbd:
 This is what a finished failover can look like:
 
 image::usage/failoverFinished.png[Finished failover]
+//////////////////////////////////////////

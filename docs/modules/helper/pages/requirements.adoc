@@ -11,6 +11,10 @@
 :hide-uri-scheme:
 :imagesdir: ../images
 
+include::partial$do-not-use.adoc[]
+
+//////////////////////////////////////////
+
 The Regional-DR helper tool (also known as RDRhelper) has a couple of requirements to successfully operate.
 
 In short these are:
@@ -109,3 +113,4 @@ If the `STATUS` is connected, submariner is set up correctly.
 Do this test on both clusters and check their status.
 
 If you have troubles, check the https://submariner.io/operations/troubleshooting/[Troubleshooting guide]
+//////////////////////////////////////////

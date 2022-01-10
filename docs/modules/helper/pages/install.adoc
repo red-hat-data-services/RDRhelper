@@ -13,6 +13,11 @@
 
 :RDRreleaseLink: https://gitlab.consulting.redhat.com/cblum/RDRhelper/-/releases[RDRhelper Releases^]
 
+include::partial$do-not-use.adoc[]
+
+
+//////////////////////////////////////////
+
 == Overview
 
 The Regional DR helper tool (also known as RDRhelper) can be used to simplify the OADP-based Regional DR available to OpenShift clusters with OpenShift Data Foundation (ODF) starting with 4.7.
@@ -73,3 +78,4 @@ After the download you can start the helper tool directly by executing the .exe 
 ----
 ./RDRhelper*.exe
 ----
+//////////////////////////////////////////
