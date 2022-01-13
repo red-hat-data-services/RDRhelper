@@ -1,2 +1,2 @@
-WARNING: These instructions are not supported and should **NOT** be used with ODF 4.7 and newer. +
+WARNING: These instructions are not supported and should **NOT** be used with ODF 4.8 and newer. +
 Instead follow the xref:training:ocs4:odf4-multisite-ramen.adoc[ACM-based steps] which will be supported in the future.
